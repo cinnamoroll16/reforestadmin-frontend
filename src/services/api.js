@@ -1,5 +1,16 @@
 // src/services/api.js - WITH RETRY LOGIC & EXPONENTIAL BACKOFF
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+// UPDATED: Proper environment variable handling for Vercel deployment
+
+// Get API URL from environment variables (works with CRA, Vite, and Next.js)
+const API_BASE_URL = 
+  process.env.REACT_APP_API_URL ||           // Create React App
+  import.meta?.env?.VITE_API_URL ||          // Vite
+  process.env.NEXT_PUBLIC_API_URL ||         // Next.js
+  'http://localhost:5000';                   // Fallback for local dev
+
+// Debug: Log the API URL being used (remove in production)
+console.log('🔗 API Base URL:', API_BASE_URL);
+console.log('🌍 Environment:', process.env.NODE_ENV);
 
 class ApiService {
   constructor() {
@@ -58,22 +69,26 @@ class ApiService {
     }
 
     const config = {
+      method: options.method || 'GET',
       headers: {
         'Content-Type': 'application/json',
         ...(token && { 'Authorization': `Bearer ${token}` }),
         ...options.headers,
       },
-      ...options,
+      credentials: 'include', // Important for CORS with credentials
     };
 
-    if (config.body && typeof config.body === 'object') {
-      config.body = JSON.stringify(config.body);
+    // Add body for non-GET requests
+    if (options.body) {
+      config.body = typeof options.body === 'object' 
+        ? JSON.stringify(options.body) 
+        : options.body;
     }
 
     // Create the request promise
     const requestPromise = (async () => {
       try {
-        console.log(`🌐 API Request: ${options.method || 'GET'} ${endpoint}`);
+        console.log(`🌐 API Request: ${config.method} ${this.baseURL}${endpoint}`);
         const response = await fetch(`${this.baseURL}${endpoint}`, config);
         
         // Handle rate limiting with retry
@@ -103,7 +118,13 @@ class ApiService {
 
         if (!response.ok) {
           const errorMessage = data.error || data.message || `HTTP error! status: ${response.status}`;
-          console.error(`❌ API Error: ${errorMessage}`);
+          console.error(`❌ API Error (${response.status}):`, errorMessage);
+          
+          // Handle CORS errors specifically
+          if (response.status === 0) {
+            throw new Error('Network error: Unable to connect to server. Check CORS configuration.');
+          }
+          
           throw new Error(errorMessage);
         }
 
@@ -119,6 +140,15 @@ class ApiService {
         return data;
       } catch (error) {
         console.error('❌ API Request failed:', error);
+        
+        // More detailed error for CORS issues
+        if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+          console.error('🚨 CORS or Network Error - Check:');
+          console.error('  1. Backend CORS allows:', window.location.origin);
+          console.error('  2. Backend is running at:', this.baseURL);
+          console.error('  3. Network connection is stable');
+        }
+        
         throw error;
       } finally {
         // Remove from pending requests
@@ -165,28 +195,36 @@ class ApiService {
   }
 
   // ========== PLANTING RECORDS ==========
-  // In your apiService class - ensure this method exists and works correctly
   async getPlantingRecords() {
-    const response = await this.request('/api/plantingrecords');
-    
-    // Handle nested response structure
-    if (response && response.success && Array.isArray(response.data)) {
-      console.log(`✅ Extracted ${response.data.length} planting records from nested response`);
-      return response.data;
-    } 
-    // Fallback: if response is already an array, return it directly
-    else if (Array.isArray(response)) {
-      console.log(`✅ Returning ${response.length} planting records directly`);
-      return response;
-    }
-    // Fallback: if response has different structure
-    else if (response && Array.isArray(response.records)) {
-      console.log(`✅ Extracted ${response.records.length} planting records from 'records' field`);
-      return response.records;
-    }
-    // If no valid data found, return empty array
-    else {
-      console.warn('⚠️ Unexpected response format for planting records:', response);
+    try {
+      console.log('🔍 Fetching planting records from:', `${this.baseURL}/api/plantingrecords`);
+      const response = await this.request('/api/plantingrecords');
+      console.log('📦 Raw API response:', response);
+      console.log('📊 Response type:', typeof response);
+      console.log('🔢 Is array?:', Array.isArray(response));
+      
+      // Handle nested response structure
+      if (response && response.success && Array.isArray(response.data)) {
+        console.log(`✅ Extracted ${response.data.length} planting records from nested response`);
+        return response.data;
+      } 
+      // Fallback: if response is already an array, return it directly
+      else if (Array.isArray(response)) {
+        console.log(`✅ Returning ${response.length} planting records directly`);
+        return response;
+      }
+      // Fallback: if response has different structure
+      else if (response && Array.isArray(response.records)) {
+        console.log(`✅ Extracted ${response.records.length} planting records from 'records' field`);
+        return response.records;
+      }
+      // If no valid data found, return empty array
+      else {
+        console.warn('⚠️ Unexpected response format for planting records:', response);
+        return [];
+      }
+    } catch (error) {
+      console.error('❌ Failed to fetch planting records:', error);
       return [];
     }
   }
@@ -207,40 +245,6 @@ class ApiService {
     });
     this.invalidateCache('/api/plantingrecords');
     return result;
-  }
-  // In your getPlantingRecords method, add detailed logging:
-  async getPlantingRecords() {
-    try {
-      console.log('🔍 Fetching planting records from:', `${this.baseURL}/api/plantingrecords`);
-      const response = await this.request('/api/plantingrecords');
-      console.log('📦 Raw API response:', response);
-      console.log('📊 Response type:', typeof response);
-      console.log('🔢 Is array?:', Array.isArray(response));
-      
-      if (Array.isArray(response)) {
-        console.log(`📈 Number of records: ${response.length}`);
-        if (response.length > 0) {
-          console.log('📝 First record sample:', response[0]);
-        }
-      } else if (response && typeof response === 'object') {
-        console.log('📋 Response keys:', Object.keys(response));
-        // Check for common response wrappers
-        if (response.data) {
-          console.log('📦 Nested data found:', response.data);
-        }
-        if (response.records) {
-          console.log('📦 Records found:', response.records);
-        }
-        if (response.plantingRecords) {
-          console.log('📦 Planting records found:', response.plantingRecords);
-        }
-      }
-      
-      return response;
-    } catch (error) {
-      console.error('❌ Failed to fetch planting records:', error);
-      return [];
-    }
   }
 
   // ========== PLANTING TASKS ==========
@@ -602,6 +606,7 @@ class ApiService {
       return { logs: [] };
     }
   }
+
   // Method to clear all cache and force fresh data
   async clearAllCache() {
     this.cache.clear();
