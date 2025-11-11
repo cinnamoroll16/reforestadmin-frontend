@@ -1,4 +1,4 @@
-// src/pages/Notification.js - UPDATED LOCATION RESOLUTION
+// src/pages/Notification.js - UPDATED TO USE fullName FROM PLANTING REQUEST
 import React, { useState, useEffect } from 'react';
 import {
   Box, Typography, Paper, Button, Chip, Dialog, DialogTitle, DialogContent,
@@ -23,6 +23,99 @@ import ForestIcon from '@mui/icons-material/Forest';
 import HistoryIcon from '@mui/icons-material/History';
 
 const drawerWidth = 240;
+
+// =============================================================================
+// DATE FORMATTING FUNCTIONS
+// =============================================================================
+
+// Format date for display: "2025-11-17" -> "Nov 17, 2025"
+const formatDisplayDate = (dateInput) => {
+  if (!dateInput) return 'N/A';
+  
+  try {
+    let dateObj;
+    
+    // Handle Firestore Timestamp objects
+    if (dateInput && typeof dateInput === 'object' && dateInput.toDate) {
+      dateObj = dateInput.toDate();
+    } 
+    // Handle date strings like "2025-11-17"
+    else if (typeof dateInput === 'string') {
+      dateObj = new Date(dateInput);
+    }
+    // Handle Date objects
+    else if (dateInput instanceof Date) {
+      dateObj = dateInput;
+    }
+    // Handle other objects - try to convert to string first
+    else if (typeof dateInput === 'object') {
+      console.warn('Unexpected date object format:', dateInput);
+      // Try to extract date from the object
+      const dateString = dateInput.toString ? dateInput.toString() : String(dateInput);
+      dateObj = new Date(dateString);
+    }
+    
+    if (dateObj && !isNaN(dateObj.getTime())) {
+      return dateObj.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    }
+    
+    // If we can't parse it, return a safe string representation
+    return String(dateInput);
+  } catch (error) {
+    console.error('Error formatting display date:', error, 'Input:', dateInput);
+    return 'Invalid Date';
+  }
+};
+
+// Format datetime for display with time - DEBUGGED VERSION
+const formatDisplayDateTime = (timestampInput) => {
+  if (!timestampInput) return 'N/A';
+  
+  try {
+    let dateObj;
+    
+    // Handle Firestore Timestamp objects
+    if (timestampInput && typeof timestampInput === 'object' && timestampInput.toDate) {
+      dateObj = timestampInput.toDate();
+    }
+    // Handle date strings
+    else if (typeof timestampInput === 'string') {
+      dateObj = new Date(timestampInput);
+    }
+    // Handle Date objects
+    else if (timestampInput instanceof Date) {
+      dateObj = timestampInput;
+    }
+    // Handle other objects - try to convert to string first
+    else if (typeof timestampInput === 'object') {
+      console.warn('Unexpected timestamp object format:', timestampInput);
+      // Try to extract date from the object
+      const dateString = timestampInput.toString ? timestampInput.toString() : String(timestampInput);
+      dateObj = new Date(dateString);
+    }
+    
+    if (dateObj && !isNaN(dateObj.getTime())) {
+      return dateObj.toLocaleString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+    }
+    
+    // If we can't parse it, return a safe string representation
+    return String(timestampInput);
+  } catch (error) {
+    console.error('Error formatting display datetime:', error, 'Input:', timestampInput);
+    return 'Invalid Date';
+  }
+};
 
 // =============================================================================
 // NOTIFICATION HELPER FUNCTIONS
@@ -63,15 +156,14 @@ export const createPlantRequestNotification = async (plantRequestData, plantRequ
 
 export const createPlantingRecordNotification = async (plantingRecordData, plantingRecordId) => {
   try {
-    // Resolve user and location information for the notification message
-    const userInfo = await resolveUserRef(plantingRecordData.userRef);
+    // Use the fullName directly from planting record data instead of resolving userRef
     const locationName = await resolveLocationRef(plantingRecordData.locationRef);
     
     const notificationData = {
       type: 'planting_record',
       notification_type: 'completed',
       title: 'Planting Activity Completed',
-      notif_message: `Planter ${userInfo.name} has planted ${plantingRecordData.seedlingRef || 'a tree'} in ${locationName}`,
+      notif_message: `Planter ${plantingRecordData.fullName} has planted ${plantingRecordData.seedlingRef || 'a tree'} in ${locationName}`,
       data: {
         plantingRecordId: plantingRecordId,
         userRef: plantingRecordData.userRef,
@@ -123,7 +215,7 @@ export const hideNotification = async (notificationId) => {
   }
 };
 
-// Helper function to resolve location reference - UPDATED VERSION
+// Helper function to resolve location reference
 const resolveLocationRef = async (locationRef) => {
   try {
     if (!locationRef) return { name: 'Unknown Location' };
@@ -148,9 +240,9 @@ const resolveLocationRef = async (locationRef) => {
   }
 };
 
-// Helper function to resolve user reference using API
+// Helper function to resolve user reference using API - UPDATED TO ONLY FETCH EMAIL
 const resolveUserRef = async (userRef) => {
-  if (!userRef) return { name: 'Unknown User', email: 'N/A' };
+  if (!userRef) return { name: 'Unknown User', email: 'No email' };
   
   try {
     // Extract user ID from reference
@@ -162,8 +254,9 @@ const resolveUserRef = async (userRef) => {
       const userData = await apiService.getUser(userId);
       if (userData) {
         return {
-          name: `${userData.user_firstname || userData.user_Firstname || userData.firstName || ''} ${userData.user_lastname || userData.user_Lastname || userData.lastName || ''}`.trim() || 'Unknown User',
-          email: userData.user_email || userData.email || 'N/A'
+          // Don't use the name from userRef - we'll use the fullName from planting request
+          name: 'Unknown User', // This won't be used anymore
+          email: userData.user_email || userData.email || 'No email'
         };
       }
     }
@@ -171,7 +264,7 @@ const resolveUserRef = async (userRef) => {
     console.error('Error resolving user via API:', error);
   }
   
-  return { name: 'Unknown User', email: 'N/A' };
+  return { name: 'Unknown User', email: 'No email' };
 };
 
 // Helper function to resolve seedling reference using API
@@ -201,10 +294,10 @@ const resolveSeedlingRef = async (seedlingRef) => {
 };
 
 // =============================================================================
-// DATA FETCHING FUNCTIONS (UPDATED - FETCH ONLY ADMIN NOTIFICATIONS)
+// DATA FETCHING FUNCTIONS (UPDATED - USE fullName FROM PLANTING REQUEST)
 // =============================================================================
 
-// Fetch planting requests from API - UPDATED WITH LOCATION RESOLUTION
+// Fetch planting requests from API - UPDATED TO USE fullName DIRECTLY
 const fetchPlantingRequests = async () => {
   try {
     console.log('🌱 Fetching planting requests via API...');
@@ -217,26 +310,35 @@ const fetchPlantingRequests = async () => {
     
     console.log('✅ Planting requests loaded via API:', requests.length);
     
-    // Process planting requests with location resolution
+    // Process planting requests - USE fullName DIRECTLY from request data
     const processedRequests = await Promise.all(
       requests.map(async (request) => {
         try {
+          // Only fetch email from userRef, use fullName directly from request
           const userInfo = await resolveUserRef(request.userRef);
           const locationInfo = await resolveLocationRef(request.locationRef);
           
           return {
             ...request,
-            fullName: userInfo.name,
-            userEmail: userInfo.email,
-            locationName: locationInfo.name
+            // Use the fullName directly from the planting request document
+            fullName: request.fullName || 'Unknown User',
+            userEmail: userInfo.email, // Only fetch email from user document
+            locationName: locationInfo.name,
+            // Format dates properly
+            formatted_preferred_date: formatDisplayDate(request.preferred_date),
+            formatted_created_at: formatDisplayDateTime(request.created_at),
+            formatted_request_date: formatDisplayDate(request.request_date)
           };
         } catch (error) {
           console.error('Error processing planting request:', error);
           return {
             ...request,
-            fullName: 'Unknown User',
-            userEmail: 'N/A',
-            locationName: 'Unknown Location'
+            fullName: request.fullName || 'Unknown User', // Use direct fullName as fallback
+            userEmail: 'No email',
+            locationName: 'Unknown Location',
+            formatted_preferred_date: formatDisplayDate(request.preferred_date),
+            formatted_created_at: formatDisplayDateTime(request.created_at),
+            formatted_request_date: formatDisplayDate(request.request_date)
           };
         }
       })
@@ -249,7 +351,7 @@ const fetchPlantingRequests = async () => {
   }
 };
 
-// Fetch planting records from API - FIXED VERSION
+// Fetch planting records from API - UPDATED TO USE fullName DIRECTLY
 const fetchPlantingRecords = async () => {
   try {
     console.log('📊 Fetching planting records via API...');
@@ -272,31 +374,35 @@ const fetchPlantingRecords = async () => {
     
     console.log('✅ Planting records loaded via API:', records.length);
     
-    // Process planting records to resolve references
+    // Process planting records - USE fullName DIRECTLY from record data
     const processedRecords = await Promise.all(
       records.map(async (record) => {
         try {
+          // Only fetch email from userRef, use fullName directly from record
           const userInfo = await resolveUserRef(record.userRef);
           const locationInfo = await resolveLocationRef(record.locationRef);
           const seedlingName = await resolveSeedlingRef(record.seedlingRef);
           
           return {
             ...record,
-            fullName: userInfo.name,
-            userEmail: userInfo.email,
+            // Use the fullName directly from the planting record document
+            fullName: record.fullName || 'Unknown User',
+            userEmail: userInfo.email, // Only fetch email from user document
             locationName: locationInfo.name,
             treeSeedlingName: seedlingName,
-            plantingDate: record.record_date || record.createdAt
+            plantingDate: record.record_date || record.createdAt,
+            formatted_planting_date: formatDisplayDateTime(record.record_date || record.createdAt)
           };
         } catch (error) {
           console.error('Error processing planting record:', error);
           return {
             ...record,
-            fullName: 'Unknown User',
-            userEmail: 'N/A',
+            fullName: record.fullName || 'Unknown User', // Use direct fullName as fallback
+            userEmail: 'No email',
             locationName: 'Unknown Location',
             treeSeedlingName: record.seedlingRef || 'Unknown Tree',
-            plantingDate: record.record_date || record.createdAt
+            plantingDate: record.record_date || record.createdAt,
+            formatted_planting_date: formatDisplayDateTime(record.record_date || record.createdAt)
           };
         }
       })
@@ -363,7 +469,6 @@ const NotificationPanel = () => {
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
   };
@@ -502,27 +607,9 @@ const NotificationPanel = () => {
     }
   };
 
+  // Use the debugged date formatting functions
   const formatDate = (date) => {
-    if (!date) return 'N/A';
-    
-    try {
-      if (typeof date === 'string') {
-        const parsed = new Date(date);
-        if (!isNaN(parsed.getTime())) {
-          return parsed.toLocaleDateString();
-        }
-        return date;
-      }
-      
-      if (date instanceof Date) {
-        return date.toLocaleDateString();
-      }
-      
-      return String(date);
-    } catch (error) {
-      console.error('Error formatting date:', error);
-      return 'Invalid Date';
-    }
+    return formatDisplayDate(date);
   };
 
   const formatType = (type) => {
@@ -533,32 +620,7 @@ const NotificationPanel = () => {
   };
 
   const formatDateTime = (date) => {
-    if (!date) return 'N/A';
-    
-    try {
-      let dateObj = null;
-      
-      if (typeof date === 'string') {
-        dateObj = new Date(date);
-      } else if (date instanceof Date) {
-        dateObj = date;
-      }
-      
-      if (dateObj && !isNaN(dateObj.getTime())) {
-        return dateObj.toLocaleString('en-US', {
-          month: 'short',
-          day: 'numeric',
-          year: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
-        });
-      }
-      
-      return String(date);
-    } catch (error) {
-      console.error('Error formatting datetime:', error);
-      return 'Invalid Date';
-    }
+    return formatDisplayDateTime(date);
   };
 
   // Combine all notifications: API notifications (admin-only) + planting requests + planting records
@@ -996,7 +1058,7 @@ const NotificationPanel = () => {
           </>
         )}
 
-        {/* Detail Dialog for Planting Requests - UPDATED LOCATION DISPLAY */}
+        {/* Detail Dialog for Planting Requests - DEBUGGED DATE DISPLAY */}
         <Dialog open={detailDialogOpen} onClose={() => setDetailDialogOpen(false)} maxWidth="md" fullWidth>
           <DialogTitle>Planting Request Details</DialogTitle>
           <DialogContent>
@@ -1005,24 +1067,35 @@ const NotificationPanel = () => {
                 <Grid item xs={12} md={6}>
                   <Typography variant="subtitle2" color="text.secondary">Requester Information</Typography>
                   <Box sx={{ mt: 1, p: 2, bgcolor: '#f5f5f5', borderRadius: 1 }}>
+                    {/* Use fullName directly from planting request data */}
                     <Typography><strong>Name:</strong> {selectedRequest.fullName || 'Unknown User'}</Typography>
-                    <Typography><strong>Email:</strong> {selectedRequest.createdBy || 'N/A'}</Typography>
+                    <Typography><strong>Email:</strong> {selectedRequest.userEmail || 'No email'}</Typography>
+                    <Typography><strong>Organization:</strong> {selectedRequest.organization || 'None'}</Typography>
                   </Box>
                 </Grid>
                 <Grid item xs={12} md={6}>
                   <Typography variant="subtitle2" color="text.secondary">Location Information</Typography>
                   <Box sx={{ mt: 1, p: 2, bgcolor: '#f5f5f5', borderRadius: 1 }}>
                     <Typography><strong>Location:</strong> {selectedRequest.locationName || 'Unknown Location'}</Typography>
+                    <Typography><strong>Address:</strong> {selectedRequest.location_address || 'N/A'}</Typography>
+                    {selectedRequest.location_lat && selectedRequest.location_lng && (
+                      <Typography variant="caption">
+                        Coordinates: {selectedRequest.location_lat}, {selectedRequest.location_lng}
+                      </Typography>
+                    )}
                   </Box>
                 </Grid>
                 <Grid item xs={12}>
                   <Typography variant="subtitle2" color="text.secondary">Request Details</Typography>
                   <Box sx={{ mt: 1, p: 2, bgcolor: '#f5f5f5', borderRadius: 1 }}>
                     <Typography>
-                      <strong>Preferred Date:</strong> {formatDate(selectedRequest.preferred_date) || 'N/A'}
+                      <strong>Preferred Date:</strong> {selectedRequest.formatted_preferred_date || 'N/A'}
                     </Typography>
                     <Typography>
-                      <strong>Submitted At:</strong> {formatDateTime(selectedRequest.request_date) || 'N/A'}
+                      <strong>Submitted At:</strong> {selectedRequest.formatted_created_at || 'N/A'}
+                    </Typography>
+                    <Typography>
+                      <strong>Request Date:</strong> {selectedRequest.formatted_request_date || 'N/A'}
                     </Typography>
                     <Typography>
                       <strong>Status:</strong> 
@@ -1033,8 +1106,8 @@ const NotificationPanel = () => {
                         sx={{ ml: 1 }}
                       />
                     </Typography>
-                    {selectedRequest.request_remarks && (
-                      <Typography sx={{ mt: 1 }}><strong>Remarks:</strong> {selectedRequest.request_remarks}</Typography>
+                    {selectedRequest.request_notes && (
+                      <Typography sx={{ mt: 1 }}><strong>Notes:</strong> {selectedRequest.request_notes}</Typography>
                     )}
                   </Box>
                 </Grid>
@@ -1046,7 +1119,7 @@ const NotificationPanel = () => {
           </DialogActions>
         </Dialog>
 
-        {/* Detail Dialog for Planting Records - UPDATED LOCATION DISPLAY */}
+        {/* Detail Dialog for Planting Records - DEBUGGED DATE DISPLAY */}
         <Dialog open={recordDialogOpen} onClose={() => setRecordDialogOpen(false)} maxWidth="md" fullWidth>
           <DialogTitle>Planting Record Details</DialogTitle>
           <DialogContent>
@@ -1056,7 +1129,7 @@ const NotificationPanel = () => {
                   <Typography variant="subtitle2" color="text.secondary">User Information</Typography>
                   <Box sx={{ mt: 1, p: 2, bgcolor: '#f5f5f5', borderRadius: 1 }}>
                     <Typography><strong>Name:</strong> {selectedRecord.fullName || 'Unknown User'}</Typography>
-                    <Typography><strong>Email:</strong> {selectedRecord.userEmail || 'N/A'}</Typography>
+                    <Typography><strong>Email:</strong> {selectedRecord.userEmail || 'No email'}</Typography>
                   </Box>
                 </Grid>
                 <Grid item xs={12} md={6}>
@@ -1072,7 +1145,7 @@ const NotificationPanel = () => {
                       <strong>Tree Seedling:</strong> {selectedRecord.treeSeedlingName || selectedRecord.seedlingRef || 'Unknown Tree'}
                     </Typography>
                     <Typography>
-                      <strong>Planting Date:</strong> {formatDateTime(selectedRecord.record_date) || formatDateTime(selectedRecord.createdAt) || 'N/A'}
+                      <strong>Planting Date:</strong> {selectedRecord.formatted_planting_date || 'N/A'}
                     </Typography>
                     <Typography>
                       <strong>Request ID:</strong> {selectedRecord.requestId || 'N/A'}
