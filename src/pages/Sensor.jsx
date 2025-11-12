@@ -1,4 +1,4 @@
-// src/pages/Sensors.js - UPDATED FOR BACKEND ML INTEGRATION
+// src/pages/Sensors.js - UPDATED WITH HISTORY IN OVERVIEW TAB
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { apiService } from '../services/api';
 import {
@@ -28,9 +28,8 @@ import {
   Alert,
   Snackbar,
   Tooltip,
-  Tab,
-  Tabs,
-  useMediaQuery
+  useMediaQuery,
+  Divider
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { 
@@ -181,7 +180,6 @@ const backendMLService = {
       const response = await fetch(`${BACKEND_CONFIG.BASE_URL}${BACKEND_CONFIG.ENDPOINTS.ML_UPLOAD_DATASET}`, {
         method: 'POST',
         body: formData,
-        // Don't set Content-Type header - browser will set it with boundary
       });
 
       if (!response.ok) {
@@ -284,7 +282,7 @@ const getStatusIcon = (status) => {
 // ============================================================================
 const SensorHistoryGrid = ({ readings }) => {
   const [historyPage, setHistoryPage] = useState(0);
-  const [historyRowsPerPage, setHistoryRowsPerPage] = useState(10);
+  const [historyRowsPerPage, setHistoryRowsPerPage] = useState(5);
 
   const handleHistoryPageChange = (event, newPage) => {
     setHistoryPage(newPage);
@@ -311,16 +309,17 @@ const SensorHistoryGrid = ({ readings }) => {
   }, [sortedReadings, historyPage, historyRowsPerPage]);
 
   return (
-    <Box sx={{ mt: 2 }}>
+    <Box sx={{ mt: 3 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
         <HistoryIcon sx={{ mr: 1, color: 'primary.main' }} />
         <Typography variant="h6">
-          Sensor History ({readings.length} readings)
+          Historical Readings ({readings.length} total)
         </Typography>
       </Box>
 
       {readings.length === 0 ? (
-        <Card variant="outlined" sx={{ p: 3, textAlign: 'center' }}>
+        <Card variant="outlined" sx={{ p: 3, textAlign: 'center', bgcolor: 'grey.50' }}>
+          <HistoryIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 1 }} />
           <Typography variant="body1" color="text.secondary">
             No historical data available for this sensor
           </Typography>
@@ -340,24 +339,24 @@ const SensorHistoryGrid = ({ readings }) => {
               </TableHead>
               <TableBody>
                 {paginatedReadings.map((reading, index) => (
-                  <TableRow key={reading.id || index}>
+                  <TableRow key={reading.id || index} hover>
                     <TableCell>
                       <Typography variant="body2">
                         {formatTimestamp(reading.timestamp)}
                       </Typography>
                     </TableCell>
                     <TableCell align="center">
-                      <Typography variant="body2">
+                      <Typography variant="body2" fontWeight="medium">
                         {formatValue(reading.pH)}
                       </Typography>
                     </TableCell>
                     <TableCell align="center">
-                      <Typography variant="body2">
+                      <Typography variant="body2" fontWeight="medium">
                         {formatValue(reading.soilMoisture, '%')}
                       </Typography>
                     </TableCell>
                     <TableCell align="center">
-                      <Typography variant="body2">
+                      <Typography variant="body2" fontWeight="medium">
                         {formatValue(reading.temperature, '°C')}
                       </Typography>
                     </TableCell>
@@ -470,29 +469,6 @@ const DatasetUpload = ({ onUploadComplete }) => {
 };
 
 // ============================================================================
-// TAB PANEL COMPONENT FOR DIALOG
-// ============================================================================
-function TabPanel(props) {
-  const { children, value, index, ...other } = props;
-
-  return (
-    <div
-      role="tabpanel"
-      hidden={value !== index}
-      id={`sensor-detail-tabpanel-${index}`}
-      aria-labelledby={`sensor-detail-tab-${index}`}
-      {...other}
-    >
-      {value === index && (
-        <Box sx={{ py: 3 }}>
-          {children}
-        </Box>
-      )}
-    </div>
-  );
-}
-
-// ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 function Sensors() {
@@ -519,7 +495,6 @@ function Sensors() {
   // Modal State
   const [selectedSensor, setSelectedSensor] = useState(null);
   const [sensorDetailOpen, setSensorDetailOpen] = useState(false);
-  const [dialogTab, setDialogTab] = useState(0);
   
   // Backend State
   const [backendStatus, setBackendStatus] = useState('checking');
@@ -868,17 +843,11 @@ function Sensors() {
     
     setSelectedSensor(sensor);
     setSensorDetailOpen(true);
-    setDialogTab(0);
   };
 
   const handleCloseSensorDetail = () => {
     setSensorDetailOpen(false);
     setSelectedSensor(null);
-    setDialogTab(0);
-  };
-
-  const handleDialogTabChange = (event, newValue) => {
-    setDialogTab(newValue);
   };
 
   // ============================================================================
@@ -1181,7 +1150,7 @@ function Sensors() {
           </Paper>
         )}
 
-        {/* ========== SENSOR DETAIL DIALOG ========== */}
+        {/* ========== SENSOR DETAIL DIALOG (Single Tab with History) ========== */}
         <Dialog 
           open={sensorDetailOpen} 
           onClose={handleCloseSensorDetail}
@@ -1197,109 +1166,103 @@ function Sensors() {
                 <CloseIcon />
               </IconButton>
             </Box>
-            <Tabs value={dialogTab} onChange={handleDialogTabChange} sx={{ mt: 1 }}>
-              <Tab label="Overview" />
-              <Tab label={`History (${selectedSensor?.readings?.length || 0})`} />
-            </Tabs>
           </DialogTitle>
           <DialogContent dividers>
             {selectedSensor && (
-              <>
-                {/* OVERVIEW TAB */}
-                <TabPanel value={dialogTab} index={0}>
-                  <Grid container spacing={3}>
-                    {/* Location Info */}
-                    <Grid item xs={12}>
-                      <Card variant="outlined">
-                        <CardContent>
-                          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                            <LocationIcon sx={{ fontSize: 16, verticalAlign: 'middle', mr: 0.5 }} />
-                            Location
+              <Box>
+                <Grid container spacing={3}>
+                  {/* Location Info */}
+                  <Grid item xs={12}>
+                    <Card variant="outlined">
+                      <CardContent>
+                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                          <LocationIcon sx={{ fontSize: 16, verticalAlign: 'middle', mr: 0.5 }} />
+                          Location
+                        </Typography>
+                        <Typography variant="h6">{selectedSensor.location}</Typography>
+                        {selectedSensor.coordinates && (
+                          <Typography variant="body2" color="text.secondary">
+                            Coordinates: {selectedSensor.coordinates.latitude.toFixed(6)}°, {selectedSensor.coordinates.longitude.toFixed(6)}°
                           </Typography>
-                          <Typography variant="h6">{selectedSensor.location}</Typography>
-                          {selectedSensor.coordinates && (
-                            <Typography variant="body2" color="text.secondary">
-                              Coordinates: {selectedSensor.coordinates.latitude.toFixed(6)}°, {selectedSensor.coordinates.longitude.toFixed(6)}°
-                            </Typography>
-                          )}
-                        </CardContent>
-                      </Card>
-                    </Grid>
-
-                    {/* Current Readings */}
-                    <Grid item xs={12} md={4}>
-                      <Card variant="outlined" sx={{ bgcolor: '#e3f2fd' }}>
-                        <CardContent>
-                          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                            <pHIcon sx={{ fontSize: 16, verticalAlign: 'middle', mr: 0.5 }} />
-                            pH Level
-                          </Typography>
-                          <Typography variant="h4">{formatValue(selectedSensor.pH)}</Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Optimal: {SensorDataSchema.pH.optimal.join(' - ')}
-                          </Typography>
-                        </CardContent>
-                      </Card>
-                    </Grid>
-
-                    <Grid item xs={12} md={4}>
-                      <Card variant="outlined" sx={{ bgcolor: '#e8f5e9' }}>
-                        <CardContent>
-                          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                            <WaterDropIcon sx={{ fontSize: 16, verticalAlign: 'middle', mr: 0.5 }} />
-                            Soil Moisture
-                          </Typography>
-                          <Typography variant="h4">{formatValue(selectedSensor.soilMoisture, '%')}</Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Optimal: {SensorDataSchema.soilMoisture.optimal.join(' - ')}%
-                          </Typography>
-                        </CardContent>
-                      </Card>
-                    </Grid>
-
-                    <Grid item xs={12} md={4}>
-                      <Card variant="outlined" sx={{ bgcolor: '#fff3e0' }}>
-                        <CardContent>
-                          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                            <ThermostatIcon sx={{ fontSize: 16, verticalAlign: 'middle', mr: 0.5 }} />
-                            Temperature
-                          </Typography>
-                          <Typography variant="h4">{formatValue(selectedSensor.temperature, '°C')}</Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Optimal: {SensorDataSchema.temperature.optimal.join(' - ')}°C
-                          </Typography>
-                        </CardContent>
-                      </Card>
-                    </Grid>
-
-                    {/* Status */}
-                    <Grid item xs={12}>
-                      <Card variant="outlined">
-                        <CardContent>
-                          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                            Status & Calibration
-                          </Typography>
-                          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-                            <Chip
-                              label={selectedSensor.status}
-                              color={getStatusColor(selectedSensor.status)}
-                              icon={getStatusIcon(selectedSensor.status)}
-                            />
-                            <Typography variant="body2" color="text.secondary">
-                              Last calibration: {selectedSensor.lastCalibration || 'N/A'}
-                            </Typography>
-                          </Box>
-                        </CardContent>
-                      </Card>
-                    </Grid>
+                        )}
+                      </CardContent>
+                    </Card>
                   </Grid>
-                </TabPanel>
 
-                {/* HISTORY TAB */}
-                <TabPanel value={dialogTab} index={1}>
-                  <SensorHistoryGrid readings={selectedSensor.readings || []} />
-                </TabPanel>
-              </>
+                  {/* Current Readings */}
+                  <Grid item xs={12} md={4}>
+                    <Card variant="outlined" sx={{ bgcolor: '#e3f2fd' }}>
+                      <CardContent>
+                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                          <pHIcon sx={{ fontSize: 16, verticalAlign: 'middle', mr: 0.5 }} />
+                          pH Level
+                        </Typography>
+                        <Typography variant="h4">{formatValue(selectedSensor.pH)}</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Optimal: {SensorDataSchema.pH.optimal.join(' - ')}
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+
+                  <Grid item xs={12} md={4}>
+                    <Card variant="outlined" sx={{ bgcolor: '#e8f5e9' }}>
+                      <CardContent>
+                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                          <WaterDropIcon sx={{ fontSize: 16, verticalAlign: 'middle', mr: 0.5 }} />
+                          Soil Moisture
+                        </Typography>
+                        <Typography variant="h4">{formatValue(selectedSensor.soilMoisture, '%')}</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Optimal: {SensorDataSchema.soilMoisture.optimal.join(' - ')}%
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+
+                  <Grid item xs={12} md={4}>
+                    <Card variant="outlined" sx={{ bgcolor: '#fff3e0' }}>
+                      <CardContent>
+                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                          <ThermostatIcon sx={{ fontSize: 16, verticalAlign: 'middle', mr: 0.5 }} />
+                          Temperature
+                        </Typography>
+                        <Typography variant="h4">{formatValue(selectedSensor.temperature, '°C')}</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Optimal: {SensorDataSchema.temperature.optimal.join(' - ')}°C
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+
+                  {/* Status */}
+                  <Grid item xs={12}>
+                    <Card variant="outlined">
+                      <CardContent>
+                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                          Status & Calibration
+                        </Typography>
+                        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                          <Chip
+                            label={selectedSensor.status}
+                            color={getStatusColor(selectedSensor.status)}
+                            icon={getStatusIcon(selectedSensor.status)}
+                          />
+                          <Typography variant="body2" color="text.secondary">
+                            Last calibration: {selectedSensor.lastCalibration || 'N/A'}
+                          </Typography>
+                        </Box>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                </Grid>
+
+                {/* Divider before history */}
+                <Divider sx={{ my: 3 }} />
+
+                {/* Historical Readings Section */}
+                <SensorHistoryGrid readings={selectedSensor.readings || []} />
+              </Box>
             )}
           </DialogContent>
           <DialogActions>
