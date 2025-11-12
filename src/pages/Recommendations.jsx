@@ -30,7 +30,6 @@ import {
   CardContent,
   LinearProgress,
   Avatar,
-  alpha,
   Toolbar,
   Alert,
   Snackbar,
@@ -47,8 +46,8 @@ import {
 import { useTheme, useMediaQuery } from '@mui/material';
 import ReForestAppBar from './AppBar.jsx';
 import Navigation from './Navigation.jsx';
-import { auth } from "../firebase.js";
 import { apiService } from '../services/api.js';
+import { useAuth } from '../context/AuthContext.js';
 
 const drawerWidth = 240;
 
@@ -69,12 +68,12 @@ function Recommendations() {
   const [saving, setSaving] = useState(false);
   
   const navigate = useNavigate();
-  const user = auth.currentUser;
-  const handleLogout = () => auth.signOut();
+  const { user, logout } = useAuth();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const handleDrawerToggle = () => setMobileOpen(!mobileOpen);
-   const getDefaultSensorData = () => {
+
+  const getDefaultSensorData = () => {
     console.log("⚠️ Using default sensor data");
     return {
       sensorId: 'N/A',
@@ -115,7 +114,7 @@ function Recommendations() {
   };
 
   // Fetch sensor data using API service
-    const fetchSensorData = async (sensorDataRef, sensorConditions) => {
+  const fetchSensorData = async (sensorDataRef, sensorConditions) => {
     try {
       console.log("🔍 Fetching sensor data for:", sensorDataRef);
       console.log("📊 Available sensor conditions:", sensorConditions);
@@ -128,7 +127,7 @@ function Recommendations() {
           soilMoisture: sensorConditions.soilMoisture || sensorConditions.moisture || 0,
           temperature: sensorConditions.temperature || sensorConditions.temp || 0,
           pH: sensorConditions.pH || sensorConditions.ph || 0,
-          timestamp: new Date().toISOString(), // Use current time since we don't have timestamp in sensorConditions
+          timestamp: new Date().toISOString(),
           ...sensorConditions
         };
       }
@@ -139,24 +138,7 @@ function Recommendations() {
         return getDefaultSensorData();
       }
       
-      // Parse path: "/sensors/s101/sensordata/data_001" or just "s101"
-      const parts = sensorDataRef.split('/').filter(Boolean);
-      console.log("📋 Parsed parts:", parts);
-      
-      let sensorId;
-      
-      // Handle different reference formats
-      if (parts.length >= 4) {
-        // Full path: "/sensors/s101/sensordata/data_001"
-        sensorId = parts[1]; // Get sensorId from the path
-      } else if (parts.length === 1) {
-        // Just sensor ID: "s101"
-        sensorId = parts[0];
-      } else {
-        console.log("❌ Unsupported sensor data reference format");
-        return getDefaultSensorData();
-      }
-      
+      const sensorId = extractSensorId(sensorDataRef);
       console.log(`📍 Extracted sensor ID: ${sensorId}`);
       
       // Use API service to fetch sensor data as fallback
@@ -187,14 +169,13 @@ function Recommendations() {
     }
   };
 
-  // Improved fetchLocationData with better error handling and logging
+  // Fetch location data using API service
   const fetchLocationData = async (locationRef) => {
     try {
       console.log("📍 fetchLocationData called with:", locationRef);
       
       if (!locationRef || locationRef === 'N/A') {
         console.log("❌ No location reference provided");
-        // Return a default location instead of null
         return {
           locationId: 'unknown',
           location_name: 'Unknown Location',
@@ -203,17 +184,13 @@ function Recommendations() {
         };
       }
       
-      // Parse path: "/locations/locA" or just "locA"
+      // Extract location ID from reference
       const parts = locationRef.split('/').filter(Boolean);
-      console.log("📋 Location ref parts:", parts);
-      
       let locationId;
       
       if (parts.length >= 2) {
-        // Full path: "/locations/locA"
         locationId = parts[1];
       } else if (parts.length === 1) {
-        // Just location ID: "locA"
         locationId = parts[0];
       } else {
         console.log("❌ Unsupported location reference format");
@@ -241,7 +218,6 @@ function Recommendations() {
           };
         }
         
-        // Ensure we have all required fields
         const processedLocationData = {
           locationId: locationId,
           location_name: locationData.location_name || locationData.name || `Location ${locationId}`,
@@ -255,7 +231,6 @@ function Recommendations() {
         
       } catch (apiError) {
         console.error(`❌ API location fetch failed for ${locationId}:`, apiError);
-        // Return fallback data instead of null
         return {
           locationId: locationId,
           location_name: `Location ${locationId}`,
@@ -265,7 +240,6 @@ function Recommendations() {
       }
     } catch (error) {
       console.error("❌ Error in fetchLocationData:", error);
-      // Return fallback data instead of null
       return {
         locationId: 'unknown',
         location_name: 'Unknown Location',
@@ -281,7 +255,7 @@ function Recommendations() {
       const seedlings = await Promise.all(
         seedlingRefs.map(async (refPath) => {
           try {
-            // Extract seedling ID from "/treeseedlings/ts001"
+            // Extract seedling ID from reference
             const seedlingId = refPath.split('/').pop();
             
             // Use API service to fetch seedling data
@@ -290,12 +264,12 @@ function Recommendations() {
             if (seedlingData) {
               return {
                 seedling_id: seedlingId,
-                commonName: seedlingData.seedling_commonName || 'Unknown',
-                scientificName: seedlingData.seedling_scientificName || 'Unknown',
-                prefMoisture: parseFloat(seedlingData.seedling_prefMoisture) || 0,
-                prefTemp: parseFloat(seedlingData.seedling_prefTemp) || 0,
-                prefpH: parseFloat(seedlingData.seedling_prefpH) || 0,
-                isNative: seedlingData.seedling_isNative === true,
+                commonName: seedlingData.seedling_commonName || seedlingData.commonName || 'Unknown',
+                scientificName: seedlingData.seedling_scientificName || seedlingData.scientificName || 'Unknown',
+                prefMoisture: parseFloat(seedlingData.seedling_prefMoisture || seedlingData.prefMoisture) || 0,
+                prefTemp: parseFloat(seedlingData.seedling_prefTemp || seedlingData.prefTemp) || 0,
+                prefpH: parseFloat(seedlingData.seedling_prefpH || seedlingData.prefpH) || 0,
+                isNative: seedlingData.seedling_isNative === true || seedlingData.isNative === true,
                 confidenceScore: 0.8 + Math.random() * 0.2
               };
             }
@@ -307,7 +281,6 @@ function Recommendations() {
         })
       );
 
-      // Remove any nulls if some docs weren't found
       return seedlings.filter(Boolean);
     } catch (error) {
       console.error("Error fetching seedlings:", error);
@@ -315,40 +288,26 @@ function Recommendations() {
     }
   };
   
-  // Improved handleImplementRecommendation with better validation
+  // Handle implement recommendation using API service
   const handleImplementRecommendation = async (reco) => {
     try {
       setSaving(true);
       setError(null);
       
       console.log("🔄 Implementing recommendation:", reco);
-      console.log("📍 Location data:", reco.locationData);
-      console.log("📍 Location ID:", reco.locationData?.locationId);
       
-      // Better validation with more informative error messages
+      // Validation
       if (!reco.locationData) {
-        console.error("❌ locationData is undefined or null");
         throw new Error('Location data is missing. The recommendation may be corrupted.');
       }
       
       if (!reco.locationData.locationId || reco.locationData.locationId === 'unknown') {
-        console.error("❌ locationId is invalid:", reco.locationData.locationId);
         throw new Error('Location ID is missing or invalid. Cannot create planting task.');
       }
       
-      // Log all recommendation data for debugging
-      console.log("📊 Full recommendation data:", {
-        reco_id: reco.reco_id,
-        sensorDataRef: reco.sensorDataRef,
-        locationRef: reco.locationRef,
-        locationData: reco.locationData,
-        sensorData: reco.sensorData,
-        seedlings: reco.recommendedSeedlings?.length || 0
-      });
-      
-      // Create a new planting task document using API service
+      // Create planting task using API service
       const taskData = {
-        user_id: user?.uid || 'USER001',
+        user_id: user?.id || user?.uid || 'USER001',
         reco_id: reco.reco_id,
         location_id: reco.locationData.locationId,
         task_status: 'assigned',
@@ -371,10 +330,10 @@ function Recommendations() {
       const result = await apiService.createPlantingTask(taskData);
       console.log('✅ Planting task created:', result);
 
-      // Create audit log
+      // Create audit log using API service
       try {
         await apiService.createAuditLog({
-          userId: user?.uid,
+          userId: user?.id || user?.uid,
           action: "Recommendation implemented",
           details: `Implemented recommendation ${reco.reco_id} for location ${reco.locationData.location_name || 'Unknown'}`,
           timestamp: new Date().toISOString()
@@ -385,16 +344,14 @@ function Recommendations() {
 
       setSuccess("Recommendation implemented successfully!");
       
-      // Navigate to task page using the Recommendation ID
+      // Navigate to task page
       setTimeout(() => {
         navigate(`/tasks/${reco.reco_id}`);
       }, 1500);
 
     } catch (error) {
       console.error('❌ Error creating planting task:', error);
-      console.error('❌ Error stack:', error.stack);
       
-      // More specific error messages
       let errorMessage = 'Failed to create planting task. ';
       if (error.message.includes('Network Error')) {
         errorMessage += 'Please check your internet connection and try again.';
@@ -420,7 +377,7 @@ function Recommendations() {
 
   // Handle delete recommendation using API service
   const handleDeleteClick = (reco, event) => {
-    event.stopPropagation(); // Prevent row click from triggering
+    event.stopPropagation();
     setRecoToDelete(reco);
     setDeleteDialogOpen(true);
   };
@@ -436,10 +393,10 @@ function Recommendations() {
 
       console.log('Recommendation deleted:', recoToDelete.id);
       
-      // Create audit log
+      // Create audit log using API service
       try {
         await apiService.createAuditLog({
-          userId: user?.uid,
+          userId: user?.id || user?.uid,
           action: "Recommendation deleted",
           details: `Deleted recommendation ${recoToDelete.reco_id}`
         });
@@ -466,7 +423,7 @@ function Recommendations() {
     setRecoToDelete(null);
   };
   
-  // Updated loadRecommendations function with better error handling
+  // Load recommendations using API service
   const loadRecommendations = async () => {
     setLoading(true);
     setError(null);
@@ -474,21 +431,13 @@ function Recommendations() {
     try {
       console.log('========== LOADING RECOMMENDATIONS ==========');
       
-      // Fetch recommendations from API
+      // Fetch recommendations from API service
       const recommendationsData = await apiService.getRecommendations();
       console.log('✓ Raw recommendations data:', recommendationsData);
       console.log('✓ Number of recommendations:', recommendationsData?.length);
 
-      // Check if data exists
-      if (!recommendationsData) {
-        console.error('❌ recommendationsData is null or undefined');
-        setRecommendations([]);
-        setLoading(false);
-        return;
-      }
-
-      if (!Array.isArray(recommendationsData)) {
-        console.error('❌ recommendationsData is not an array:', typeof recommendationsData);
+      if (!recommendationsData || !Array.isArray(recommendationsData)) {
+        console.error('❌ recommendationsData is invalid');
         setRecommendations([]);
         setLoading(false);
         return;
@@ -503,7 +452,7 @@ function Recommendations() {
 
       console.log(`📊 Processing ${recommendationsData.length} recommendations...`);
 
-      // Process recommendations data with better error handling
+      // Process recommendations data
       const processedRecommendations = await Promise.all(
         recommendationsData.map(async (reco, index) => {
           try {
@@ -522,7 +471,7 @@ function Recommendations() {
               return null;
             }
 
-            // 🔹 Fetch sensor data - pass sensorConditions from the recommendation
+            // Fetch sensor data
             console.log('🔍 Fetching sensor data...');
             const sensorData = await fetchSensorData(
               reco.sensorDataRef, 
@@ -530,12 +479,12 @@ function Recommendations() {
             );
             console.log('✅ Sensor data:', sensorData);
             
-            // 🔹 Fetch location data from reference
+            // Fetch location data
             console.log('📍 Fetching location data...');
             const locationData = await fetchLocationData(reco.locationRef);
             console.log('✅ Location data:', locationData);
 
-            // 🔹 Resolve each treeseedling ref in seedlingOptions
+            // Resolve seedlings
             let seedlings = [];
             if (Array.isArray(reco.seedlingOptions) && reco.seedlingOptions.length > 0) {
               console.log('🌱 Fetching seedlings...');
@@ -545,7 +494,7 @@ function Recommendations() {
               console.warn(`⚠️ No seedling options for recommendation ${reco.id}`);
             }
 
-            // Confidence parsing with fallbacks
+            // Confidence parsing
             let confidenceScore;
             if (typeof reco.reco_confidenceScore === 'string') {
               confidenceScore = parseFloat(reco.reco_confidenceScore);
@@ -556,25 +505,17 @@ function Recommendations() {
               confidenceScore = 0.85;
             }
 
-            // Convert to percentage if needed
             const confidencePercentage = confidenceScore > 1
               ? Math.min(Math.round(confidenceScore), 100)
               : Math.round(confidenceScore * 100);
 
             const status = generateStatus(confidenceScore);
 
-            // Date parsing with fallbacks
+            // Date parsing
             let generatedDate;
             try {
               if (reco.reco_generatedAt) {
-                // Handle Firestore Timestamp
-                if (reco.reco_generatedAt.toDate) {
-                  generatedDate = reco.reco_generatedAt.toDate().toISOString();
-                } else if (reco.reco_generatedAt._seconds) {
-                  generatedDate = new Date(reco.reco_generatedAt._seconds * 1000).toISOString();
-                } else {
-                  generatedDate = reco.reco_generatedAt;
-                }
+                generatedDate = new Date(reco.reco_generatedAt).toISOString();
               } else if (reco.createdAt) {
                 generatedDate = reco.createdAt;
               } else {
@@ -599,7 +540,7 @@ function Recommendations() {
               seedlingCount: seedlings.length,
               deleted: reco.deleted || false,
               season: reco.season || 'unknown',
-              sensorConditions: reco.sensorConditions || {} // Keep original sensor conditions
+              sensorConditions: reco.sensorConditions || {}
             };
 
             console.log('✅ Processed recommendation:', processedReco.reco_id);
@@ -607,17 +548,15 @@ function Recommendations() {
 
           } catch (recoError) {
             console.error(`❌ Error processing recommendation ${reco?.id}:`, recoError);
-            console.error('Error stack:', recoError.stack);
-            return null; // Skip this recommendation if there's an error
+            return null;
           }
         })
       );
-      // Filter out null values (deleted recommendations or processing errors)
+      
       const validRecommendations = processedRecommendations.filter(reco => reco !== null);
       
       console.log('\n========== PROCESSING COMPLETE ==========');
       console.log(`✅ Successfully processed ${validRecommendations.length}/${recommendationsData.length} recommendations`);
-      console.log('Valid recommendations:', validRecommendations);
       
       setRecommendations(validRecommendations);
       
@@ -627,7 +566,6 @@ function Recommendations() {
       
     } catch (error) {
       console.error("❌ CRITICAL ERROR loading recommendations:", error);
-      console.error('Error stack:', error.stack);
       setError("Failed to load recommendations: " + error.message);
       setRecommendations([]);
     } finally {
@@ -640,19 +578,18 @@ function Recommendations() {
   useEffect(() => {
     loadRecommendations();
 
-    // Set up polling for real-time updates (optional)
+    // Set up polling for real-time updates
     const pollInterval = setInterval(() => {
       loadRecommendations();
-    }, 30000); // Poll every 30 seconds
+    }, 30000);
 
     return () => {
       clearInterval(pollInterval);
     };
   }, []);
 
-  // Handle filtering (exclude deleted recommendations)
+  // Handle filtering
   const filteredRecommendations = recommendations.filter(reco => {
-    // Skip if deleted
     if (reco.deleted) return false;
     
     const matchesSearch = reco.reco_id.toLowerCase().includes(filter.toLowerCase()) ||
@@ -701,7 +638,7 @@ function Recommendations() {
   return (
     <Box sx={{ display: 'flex', bgcolor: '#f8fafc', minHeight: '100vh' }}>
       {/* App Bar */}
-      <ReForestAppBar handleDrawerToggle={handleDrawerToggle} user={user} onLogout={handleLogout} />
+      <ReForestAppBar handleDrawerToggle={handleDrawerToggle} user={user} onLogout={logout} />
 
       {/* Side Navigation */}
       <Navigation mobileOpen={mobileOpen} handleDrawerToggle={handleDrawerToggle} isMobile={isMobile} />
@@ -732,7 +669,7 @@ function Recommendations() {
               variant="contained"
               startIcon={<AddIcon />}
               sx={{ backgroundColor: '#2e7d32' }}
-              onClick={() => window.location.href = '/sensor'}
+              onClick={() => navigate('/sensor')}
             >
               Generate New
             </Button>
@@ -966,11 +903,6 @@ function Recommendations() {
                         <Typography variant="body2">Soil Moisture: {selectedReco.sensorData.soilMoisture}%</Typography>
                         <Typography variant="body2">Temperature: {selectedReco.sensorData.temperature}°C</Typography>
                         <Typography variant="body2">pH Level: {selectedReco.sensorData.pH}</Typography>
-                        <Typography variant="body2">
-                          Recorded: {selectedReco.sensorData.timestamp 
-                            ? new Date(selectedReco.sensorData.timestamp).toLocaleString() 
-                            : 'N/A'}
-                        </Typography>
                       </>
                     ) : (
                       <Typography variant="body2" color="text.secondary">No sensor data available</Typography>
@@ -1056,7 +988,7 @@ function Recommendations() {
                 variant="contained" 
                 onClick={() => {
                   handleImplementRecommendation(selectedReco);
-                  handleCloseDialog(); // optional: keep or remove if you want dialog to stay briefly
+                  handleCloseDialog();
                 }} 
                 disabled={saving}
                 sx={{ bgcolor: '#2e7d32' }}
@@ -1065,7 +997,6 @@ function Recommendations() {
                 {saving ? "Implementing..." : "Implement"}
               </Button>
             </DialogActions>
-
           </Dialog>
 
           {/* Delete Confirmation Dialog */}
