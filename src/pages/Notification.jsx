@@ -1,10 +1,10 @@
-// src/pages/Notification.js - UPDATED TO USE fullName FROM PLANTING REQUEST
+// src/pages/Notification.js - FIXED RESPONSE HANDLING
 import React, { useState, useEffect } from 'react';
 import {
   Box, Typography, Paper, Button, Chip, Dialog, DialogTitle, DialogContent,
   DialogActions, Grid, Alert, IconButton,
-  Badge, useMediaQuery, useTheme, Avatar, LinearProgress, alpha,
-  Tabs, Tab, Snackbar, CircularProgress, Toolbar
+  Badge, useMediaQuery, useTheme, LinearProgress, alpha,
+  Tabs, Tab, Snackbar, CircularProgress, Stack, Card
 } from '@mui/material';
 import ReForestAppBar from './AppBar.jsx';
 import Navigation from './Navigation.jsx';
@@ -20,7 +20,8 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import MarkAsReadIcon from '@mui/icons-material/DoneAll';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import ForestIcon from '@mui/icons-material/Forest';
-import HistoryIcon from '@mui/icons-material/History';
+import CloseIcon from '@mui/icons-material/Close';
+import PersonIcon from '@mui/icons-material/Person';
 
 const drawerWidth = 240;
 
@@ -28,31 +29,20 @@ const drawerWidth = 240;
 // DATE FORMATTING FUNCTIONS
 // =============================================================================
 
-// Format date for display: "2025-11-17" -> "Nov 17, 2025"
 const formatDisplayDate = (dateInput) => {
   if (!dateInput) return 'N/A';
   
   try {
     let dateObj;
     
-    // Handle Firestore Timestamp objects
     if (dateInput && typeof dateInput === 'object' && dateInput.toDate) {
       dateObj = dateInput.toDate();
-    } 
-    // Handle date strings like "2025-11-17"
-    else if (typeof dateInput === 'string') {
+    } else if (typeof dateInput === 'string') {
       dateObj = new Date(dateInput);
-    }
-    // Handle Date objects
-    else if (dateInput instanceof Date) {
+    } else if (dateInput instanceof Date) {
       dateObj = dateInput;
-    }
-    // Handle other objects - try to convert to string first
-    else if (typeof dateInput === 'object') {
-      console.warn('Unexpected date object format:', dateInput);
-      // Try to extract date from the object
-      const dateString = dateInput.toString ? dateInput.toString() : String(dateInput);
-      dateObj = new Date(dateString);
+    } else {
+      return String(dateInput);
     }
     
     if (dateObj && !isNaN(dateObj.getTime())) {
@@ -63,39 +53,27 @@ const formatDisplayDate = (dateInput) => {
       });
     }
     
-    // If we can't parse it, return a safe string representation
     return String(dateInput);
   } catch (error) {
-    console.error('Error formatting display date:', error, 'Input:', dateInput);
+    console.error('Error formatting display date:', error);
     return 'Invalid Date';
   }
 };
 
-// Format datetime for display with time - DEBUGGED VERSION
 const formatDisplayDateTime = (timestampInput) => {
   if (!timestampInput) return 'N/A';
   
   try {
     let dateObj;
     
-    // Handle Firestore Timestamp objects
     if (timestampInput && typeof timestampInput === 'object' && timestampInput.toDate) {
       dateObj = timestampInput.toDate();
-    }
-    // Handle date strings
-    else if (typeof timestampInput === 'string') {
+    } else if (typeof timestampInput === 'string') {
       dateObj = new Date(timestampInput);
-    }
-    // Handle Date objects
-    else if (timestampInput instanceof Date) {
+    } else if (timestampInput instanceof Date) {
       dateObj = timestampInput;
-    }
-    // Handle other objects - try to convert to string first
-    else if (typeof timestampInput === 'object') {
-      console.warn('Unexpected timestamp object format:', timestampInput);
-      // Try to extract date from the object
-      const dateString = timestampInput.toString ? timestampInput.toString() : String(timestampInput);
-      dateObj = new Date(dateString);
+    } else {
+      return String(timestampInput);
     }
     
     if (dateObj && !isNaN(dateObj.getTime())) {
@@ -109,345 +87,173 @@ const formatDisplayDateTime = (timestampInput) => {
       });
     }
     
-    // If we can't parse it, return a safe string representation
     return String(timestampInput);
   } catch (error) {
-    console.error('Error formatting display datetime:', error, 'Input:', timestampInput);
+    console.error('Error formatting display datetime:', error);
     return 'Invalid Date';
   }
 };
 
 // =============================================================================
-// NOTIFICATION HELPER FUNCTIONS
+// DATA FETCHING FUNCTIONS - FIXED RESPONSE HANDLING
 // =============================================================================
 
-export const createPlantRequestNotification = async (plantRequestData, plantRequestId) => {
-  try {
-    const notificationData = {
-      type: 'plant_request',
-      notification_type: 'pending',
-      title: 'New Planting Request',
-      notif_message: `New planting request from ${plantRequestData.fullName} for ${plantRequestData.preferred_date}`,
-      data: {
-        plantRequestId: plantRequestId,
-        userRef: plantRequestData.userRef,
-        locationRef: plantRequestData.locationRef,
-        preferredDate: plantRequestData.preferred_date,
-        createdBy: plantRequestData.createdBy,
-        requestStatus: 'pending'
-      },
-      targetRole: 'admin', // Explicitly set to admin
-      read: false,
-      resolved: false,
-      hidden: false,
-      priority: 'medium',
-      notif_timestamp: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-
-    const result = await apiService.createNotification(notificationData);
-    console.log('✓ Admin notification created via API:', result.id);
-    return result.id;
-  } catch (error) {
-    console.error('Error creating admin notification via API:', error);
-    throw error;
-  }
-};
-
-export const createPlantingRecordNotification = async (plantingRecordData, plantingRecordId) => {
-  try {
-    // Use the fullName directly from planting record data instead of resolving userRef
-    const locationName = await resolveLocationRef(plantingRecordData.locationRef);
-    
-    const notificationData = {
-      type: 'planting_record',
-      notification_type: 'completed',
-      title: 'Planting Activity Completed',
-      notif_message: `Planter ${plantingRecordData.fullName} has planted ${plantingRecordData.seedlingRef || 'a tree'} in ${locationName}`,
-      data: {
-        plantingRecordId: plantingRecordId,
-        userRef: plantingRecordData.userRef,
-        locationRef: plantingRecordData.locationRef,
-        seedlingRef: plantingRecordData.seedlingRef,
-        record_date: plantingRecordData.record_date,
-        status: 'completed'
-      },
-      targetRole: 'admin', // Explicitly set to admin
-      read: false,
-      resolved: false,
-      hidden: false,
-      priority: 'low',
-      notif_timestamp: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-
-    const result = await apiService.createNotification(notificationData);
-    console.log('✓ Planting record admin notification created via API:', result.id);
-    return result.id;
-  } catch (error) {
-    console.error('Error creating planting record admin notification via API:', error);
-    throw error;
-  }
-};
-
-export const markNotificationAsRead = async (notificationId) => {
-  try {
-    await apiService.updateNotification(notificationId, {
-      read: true,
-      updatedAt: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Error marking notification as read via API:', error);
-    throw error;
-  }
-};
-
-export const hideNotification = async (notificationId) => {
-  try {
-    await apiService.updateNotification(notificationId, {
-      hidden: true,
-      hiddenAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Error hiding notification via API:', error);
-    throw error;
-  }
-};
-
-// Helper function to resolve location reference
-const resolveLocationRef = async (locationRef) => {
-  try {
-    if (!locationRef) return { name: 'Unknown Location' };
-    
-    let locationName;
-    
-    // Handle different reference formats
-    if (locationRef.includes('/')) {
-      locationName = locationRef.split('/').pop();
-    } else if (locationRef.startsWith('locations/')) {
-      locationName = locationRef.replace('locations/', '');
-    } else {
-      locationName = locationRef;
-    }
-    
-    return {
-      name: locationName || 'Unknown Location'
-    };
-  } catch (error) {
-    console.error('Error fetching location data:', error);
-    return { name: 'Unknown Location' };
-  }
-};
-
-// Helper function to resolve user reference using API - UPDATED TO ONLY FETCH EMAIL
-const resolveUserRef = async (userRef) => {
-  if (!userRef) return { name: 'Unknown User', email: 'No email' };
-  
-  try {
-    // Extract user ID from reference
-    const userId = typeof userRef === 'string' 
-      ? userRef.split('/').pop() 
-      : userRef.path?.split('/').pop();
-    
-    if (userId) {
-      const userData = await apiService.getUser(userId);
-      if (userData) {
-        return {
-          // Don't use the name from userRef - we'll use the fullName from planting request
-          name: 'Unknown User', // This won't be used anymore
-          email: userData.user_email || userData.email || 'No email'
-        };
-      }
-    }
-  } catch (error) {
-    console.error('Error resolving user via API:', error);
-  }
-  
-  return { name: 'Unknown User', email: 'No email' };
-};
-
-// Helper function to resolve seedling reference using API
-const resolveSeedlingRef = async (seedlingRef) => {
-  if (!seedlingRef) return 'Unknown Tree';
-  
-  try {
-    // If seedlingRef is a code like "ts070", use it directly
-    if (typeof seedlingRef === 'string' && seedlingRef.length > 0) {
-      return seedlingRef; // Return the seedling code
-    }
-    
-    // If it's a document reference, extract the ID
-    const seedlingId = typeof seedlingRef === 'string' 
-      ? seedlingRef.split('/').pop() 
-      : seedlingRef.path?.split('/').pop();
-    
-    if (seedlingId) {
-      const seedlingData = await apiService.getTreeSeedling(seedlingId);
-      return seedlingData?.tree_name || seedlingData?.name || seedlingId;
-    }
-  } catch (error) {
-    console.error('Error resolving seedling via API:', error);
-  }
-  
-  return 'Unknown Tree';
-};
-
-// =============================================================================
-// DATA FETCHING FUNCTIONS (UPDATED - USE fullName FROM PLANTING REQUEST)
-// =============================================================================
-
-// Fetch planting requests from API - UPDATED TO USE fullName DIRECTLY
-const fetchPlantingRequests = async () => {
-  try {
-    console.log('🌱 Fetching planting requests via API...');
-    const response = await apiService.getPlantingRequests();
-    
-    console.log('🔍 Planting requests API response:', response);
-    
-    // apiService.getPlantingRequests() returns the raw response
-    const requests = Array.isArray(response) ? response : [];
-    
-    console.log('✅ Planting requests loaded via API:', requests.length);
-    
-    // Process planting requests - USE fullName DIRECTLY from request data
-    const processedRequests = await Promise.all(
-      requests.map(async (request) => {
-        try {
-          // Only fetch email from userRef, use fullName directly from request
-          const userInfo = await resolveUserRef(request.userRef);
-          const locationInfo = await resolveLocationRef(request.locationRef);
-          
-          return {
-            ...request,
-            // Use the fullName directly from the planting request document
-            fullName: request.fullName || 'Unknown User',
-            userEmail: userInfo.email, // Only fetch email from user document
-            locationName: locationInfo.name,
-            // Format dates properly
-            formatted_preferred_date: formatDisplayDate(request.preferred_date),
-            formatted_created_at: formatDisplayDateTime(request.created_at),
-            formatted_request_date: formatDisplayDate(request.request_date)
-          };
-        } catch (error) {
-          console.error('Error processing planting request:', error);
-          return {
-            ...request,
-            fullName: request.fullName || 'Unknown User', // Use direct fullName as fallback
-            userEmail: 'No email',
-            locationName: 'Unknown Location',
-            formatted_preferred_date: formatDisplayDate(request.preferred_date),
-            formatted_created_at: formatDisplayDateTime(request.created_at),
-            formatted_request_date: formatDisplayDate(request.request_date)
-          };
-        }
-      })
-    );
-    
-    return processedRequests;
-  } catch (error) {
-    console.error('❌ API fetch failed:', error.message);
-    return [];
-  }
-};
-
-// Fetch planting records from API - UPDATED TO USE fullName DIRECTLY
-const fetchPlantingRecords = async () => {
-  try {
-    console.log('📊 Fetching planting records via API...');
-    const response = await apiService.getPlantingRecords();
-    
-    console.log('🔍 Planting records API response:', response);
-    
-    // FIX: Handle the nested response structure
-    let records = [];
-    if (response && response.success && Array.isArray(response.data)) {
-      records = response.data;
-      console.log(`✅ Extracted ${records.length} planting records from nested response`);
-    } else if (Array.isArray(response)) {
-      records = response;
-      console.log(`✅ Using ${records.length} planting records directly`);
-    } else {
-      console.warn('⚠️ Unexpected response format for planting records:', response);
-      records = [];
-    }
-    
-    console.log('✅ Planting records loaded via API:', records.length);
-    
-    // Process planting records - USE fullName DIRECTLY from record data
-    const processedRecords = await Promise.all(
-      records.map(async (record) => {
-        try {
-          // Only fetch email from userRef, use fullName directly from record
-          const userInfo = await resolveUserRef(record.userRef);
-          const locationInfo = await resolveLocationRef(record.locationRef);
-          const seedlingName = await resolveSeedlingRef(record.seedlingRef);
-          
-          return {
-            ...record,
-            // Use the fullName directly from the planting record document
-            fullName: record.fullName || 'Unknown User',
-            userEmail: userInfo.email, // Only fetch email from user document
-            locationName: locationInfo.name,
-            treeSeedlingName: seedlingName,
-            plantingDate: record.record_date || record.createdAt,
-            formatted_planting_date: formatDisplayDateTime(record.record_date || record.createdAt)
-          };
-        } catch (error) {
-          console.error('Error processing planting record:', error);
-          return {
-            ...record,
-            fullName: record.fullName || 'Unknown User', // Use direct fullName as fallback
-            userEmail: 'No email',
-            locationName: 'Unknown Location',
-            treeSeedlingName: record.seedlingRef || 'Unknown Tree',
-            plantingDate: record.record_date || record.createdAt,
-            formatted_planting_date: formatDisplayDateTime(record.record_date || record.createdAt)
-          };
-        }
-      })
-    );
-    
-    return processedRecords;
-  } catch (error) {
-    console.error('❌ API fetch failed:', error.message);
-    return [];
-  }
-};
-
-// Fetch notifications from API - FIXED with better error handling
+// Fixed fetchNotifications to properly handle backend response
 const fetchNotifications = async () => {
   try {
-    console.log('🔔 Fetching ADMIN notifications via API...');
+    console.log('🔔 Fetching notifications via API...');
     
-    // Clear cache first to ensure fresh data
-    apiService.invalidateCache('/api/notifications');
+    let response;
+    try {
+      response = await apiService.getNotifications();
+      console.log('🔍 Notifications API raw response:', response);
+    } catch (apiError) {
+      console.error('❌ API call failed:', apiError);
+      return [];
+    }
     
-    const response = await apiService.getNotifications();
+    // DEBUG: Log the exact response structure
+    console.log('🔍 Response structure:', {
+      type: typeof response,
+      isArray: Array.isArray(response),
+      keys: response ? Object.keys(response) : 'no response',
+      hasNotifications: response && 'notifications' in response,
+      hasData: response && 'data' in response,
+      success: response && response.success
+    });
     
-    console.log('🔍 Notifications API response:', response);
+    // Handle different response structures based on your actual API
+    let notifications = [];
     
-    // apiService.getNotifications() already returns an array or empty array
-    const notifications = Array.isArray(response) ? response : [];
+    if (response && response.success && Array.isArray(response.notifications)) {
+      // Structure: { success: true, notifications: [...] }
+      console.log('✅ Using response.notifications array');
+      notifications = response.notifications;
+    } else if (response && Array.isArray(response.notifications)) {
+      // Structure: { notifications: [...] }
+      console.log('✅ Using response.notifications array (without success flag)');
+      notifications = response.notifications;
+    } else if (response && Array.isArray(response)) {
+      // Structure: [...]
+      console.log('✅ Using direct array response');
+      notifications = response;
+    } else if (response && response.success && Array.isArray(response.data)) {
+      // Structure: { success: true, data: [...] }
+      console.log('✅ Using response.data array');
+      notifications = response.data;
+    } else {
+      console.warn('⚠️ Unexpected notifications response format:', response);
+      return [];
+    }
     
-    console.log('✅ ADMIN notifications loaded via API:', notifications.length);
+    console.log('✅ Raw notifications loaded:', notifications.length);
     
-    // Additional client-side filtering to ensure only admin notifications
-    const adminNotifications = notifications.filter(notification => 
-      notification.targetRole === 'admin'
-    );
+    if (notifications.length > 0) {
+      console.log('📋 Sample raw notification:', notifications[0]);
+    }
     
-    console.log('✅ Filtered ADMIN notifications:', adminNotifications.length);
+    // Transform to match your actual notification structure
+    const transformedNotifications = notifications.map(notification => ({
+      // Map from your actual structure to expected structure
+      id: notification.notificationId || notification.id,
+      type: notification.type || 'general',
+      title: notification.title || 'Notification',
+      message: notification.message || notification.notif_message,
+      notif_message: notification.message || notification.notif_message,
+      // Use actual fields from your sample data
+      fullName: notification.fullName,
+      location: notification.location,
+      preferred_date: notification.preferred_date,
+      requestId: notification.requestId,
+      status: notification.status,
+      userId: notification.userId,
+      isRead: notification.isRead || notification.read || false,
+      created_at: notification.created_at || notification.notif_timestamp,
+      // Add timestamp for sorting
+      timestamp: notification.created_at || notification.notif_timestamp || notification.timestamp,
+      // Mark as real API notification (not synthetic)
+      isRealNotification: true
+    }));
     
-    return adminNotifications;
+    console.log('✅ Transformed notifications:', transformedNotifications.length);
+    
+    if (transformedNotifications.length > 0) {
+      console.log('📋 Sample transformed notification:', transformedNotifications[0]);
+    }
+    
+    return transformedNotifications;
   } catch (error) {
-    console.error('❌ API fetch failed:', error.message);
+    console.error('❌ Fetch notifications failed:', error.message);
+    return [];
+  }
+};
+
+// Fixed fetchPlantingRequests
+const fetchPlantingRequests = async () => {
+  try {
+    console.log('🌱 Fetching planting requests...');
+    let response;
+    
+    try {
+      response = await apiService.getPlantingRequests();
+    } catch (error) {
+      console.error('❌ API call failed:', error);
+      return [];
+    }
+    
+    const requests = Array.isArray(response) ? response : [];
+    console.log('✅ Planting requests loaded:', requests.length);
+    
+    return requests.map(request => ({
+      ...request,
+      fullName: request.fullName || 'Unknown User',
+      locationName: request.location_address || 'Unknown Location',
+      formatted_preferred_date: formatDisplayDate(request.preferred_date),
+      formatted_request_date: formatDisplayDate(request.request_date)
+    }));
+  } catch (error) {
+    console.error('❌ Fetch planting requests failed:', error.message);
+    return [];
+  }
+};
+
+// Fixed fetchPlantingRecords
+const fetchPlantingRecords = async () => {
+  try {
+    console.log('📊 Fetching planting records...');
+    let response;
+    
+    try {
+      response = await apiService.getPlantingRecords();
+    } catch (error) {
+      console.error('❌ API call failed:', error);
+      return [];
+    }
+    
+    let records = [];
+    if (response && Array.isArray(response)) {
+      records = response;
+    } else if (response && response.success && Array.isArray(response.data)) {
+      records = response.data;
+    }
+    
+    console.log('✅ Planting records loaded:', records.length);
+    
+    return records.map(record => ({
+      ...record,
+      fullName: record.fullName || 'Unknown User',
+      locationName: record.location_name || 'Unknown Location',
+      treeSeedlingName: record.seedlingRef || 'Unknown Tree',
+      formatted_planting_date: formatDisplayDateTime(record.record_date || record.createdAt)
+    }));
+  } catch (error) {
+    console.error('❌ Fetch planting records failed:', error.message);
     return [];
   }
 };
 
 // =============================================================================
-// MAIN COMPONENT
+// MAIN COMPONENT - FIXED RESPONSE HANDLING
 // =============================================================================
 
 const NotificationPanel = () => {
@@ -466,9 +272,11 @@ const NotificationPanel = () => {
   const [activeTab, setActiveTab] = useState(0);
   const [alert, setAlert] = useState({ open: false, message: '', severity: 'info' });
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
   };
@@ -477,14 +285,14 @@ const NotificationPanel = () => {
     setActiveTab(newValue);
   };
 
-  // Load all data using API service
+  // Load data with better error handling
   const loadData = async () => {
     try {
       setLoading(true);
-      console.log('🔄 Loading ADMIN notification data via API...');
+      console.log('🔄 Loading all data...');
 
       const [notificationsData, requestsData, recordsData] = await Promise.all([
-        fetchNotifications(), // This now fetches only admin notifications
+        fetchNotifications(),
         fetchPlantingRequests(),
         fetchPlantingRecords()
       ]);
@@ -493,38 +301,54 @@ const NotificationPanel = () => {
       setPlantingRequests(requestsData);
       setPlantingRecords(recordsData);
 
-      console.log('✅ ADMIN notification data loaded successfully via API');
-      console.log('📊 Stats:', {
-        adminNotifications: notificationsData.length,
+      console.log('✅ All data loaded successfully');
+      console.log('📊 Final Stats:', {
+        notifications: notificationsData.length,
         requests: requestsData.length,
         records: recordsData.length
       });
-      setLoading(false);
+
+      // DEBUG: Check what's in notificationsData
+      if (notificationsData.length === 0) {
+        console.warn('⚠️ No notifications loaded, but backend returned data');
+        console.log('🔍 Checking API service response directly...');
+        
+        // Try direct fetch to debug
+        try {
+          const directResponse = await fetch('/api/notifications');
+          const directData = await directResponse.json();
+          console.log('🔍 Direct fetch response:', directData);
+        } catch (directError) {
+          console.error('❌ Direct fetch failed:', directError);
+        }
+      }
 
     } catch (error) {
-      console.error('❌ Error loading admin notification data:', error);
+      console.error('❌ Error loading data:', error);
       setAlert({
         open: true,
         message: 'Error loading data: ' + error.message,
         severity: 'error'
       });
+    } finally {
       setLoading(false);
     }
   };
 
-  // Setup polling for real-time updates
   useEffect(() => {
     loadData();
 
-    // Set up polling for real-time updates
     const pollInterval = setInterval(() => {
       loadData();
-    }, 30000); // Poll every 30 seconds
+    }, 30000);
 
     return () => {
       clearInterval(pollInterval);
     };
   }, []);
+
+  // Rest of the component remains the same as previous version...
+  // [Keep all the handle functions, helper functions, NotificationRow, etc.]
 
   const handleViewDetails = (request) => {
     setSelectedRequest(request);
@@ -540,12 +364,17 @@ const NotificationPanel = () => {
     setSelectedNotification(notification);
     setNotificationDialogOpen(true);
     
-    if (!notification.read) {
+    // Mark as read if it's a real notification and not already read
+    if (notification.isRealNotification && !notification.isRead) {
       try {
-        await apiService.updateNotification(notification.id, { read: true });
+        await apiService.updateNotification(notification.id, {
+          isRead: true,
+          read: true,
+          updatedAt: new Date().toISOString()
+        });
         
         setNotifications(prev => prev.map(n => 
-          n.id === notification.id ? { ...n, read: true } : n
+          n.id === notification.id ? { ...n, isRead: true, read: true } : n
         ));
       } catch (error) {
         console.error('Error marking notification as read:', error);
@@ -557,35 +386,93 @@ const NotificationPanel = () => {
     try {
       setSaving(true);
       
-      // Use the bulk mark as read endpoint
-      await apiService.markAllNotificationsAsRead();
+      // Get unread real notifications
+      const unreadNotifications = notifications.filter(n => 
+        n.isRealNotification && !n.isRead
+      );
+      
+      const markReadPromises = unreadNotifications.map(notification => 
+        apiService.updateNotification(notification.id, {
+          isRead: true,
+          read: true,
+          updatedAt: new Date().toISOString()
+        })
+      );
+      
+      await Promise.all(markReadPromises);
       
       // Update local state
-      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-      setAlert({ open: true, message: 'All admin notifications marked as read', severity: 'success' });
+      setNotifications(prev => prev.map(n => 
+        n.isRealNotification ? { ...n, isRead: true, read: true } : n
+      ));
+      
+      setAlert({ 
+        open: true, 
+        message: `Marked ${unreadNotifications.length} notifications as read`, 
+        severity: 'success' 
+      });
     } catch (error) {
-      console.error('Error marking all notifications as read:', error);
-      setAlert({ open: true, message: 'Error marking notifications as read', severity: 'error' });
+      console.error('Error marking all as read:', error);
+      setAlert({ 
+        open: true, 
+        message: 'Error marking notifications as read', 
+        severity: 'error' 
+      });
     } finally {
       setSaving(false);
     }
   };
 
-  const handleRemoveNotification = async (notificationId) => {
+  const handleRemoveNotification = async (notificationId, event) => {
+    if (event) {
+      event.stopPropagation();
+    }
+    
     try {
-      setSaving(true);
-      await apiService.deleteNotification(notificationId);
+      setDeletingId(notificationId);
       
-      setNotifications(prev => prev.filter(n => n.id !== notificationId));
-      setAlert({ open: true, message: 'Admin notification removed', severity: 'success' });
+      if (notificationId.startsWith('request-') || notificationId.startsWith('record-')) {
+        // Synthetic notification - just filter out
+        setNotifications(prev => prev.filter(n => n.id !== notificationId));
+        setAlert({ 
+          open: true, 
+          message: 'Notification removed', 
+          severity: 'success' 
+        });
+      } else {
+        // Real notification - call API
+        try {
+          await apiService.deleteNotification(notificationId);
+          setNotifications(prev => prev.filter(n => n.id !== notificationId));
+          setAlert({ 
+            open: true, 
+            message: 'Notification deleted', 
+            severity: 'success' 
+          });
+        } catch (apiError) {
+          console.error('API delete failed:', apiError);
+          // Still remove from UI for better UX
+          setNotifications(prev => prev.filter(n => n.id !== notificationId));
+          setAlert({ 
+            open: true, 
+            message: 'Notification removed from view', 
+            severity: 'warning' 
+          });
+        }
+      }
     } catch (error) {
       console.error('Error removing notification:', error);
-      setAlert({ open: true, message: 'Error removing notification', severity: 'error' });
+      setAlert({ 
+        open: true, 
+        message: 'Error removing notification', 
+        severity: 'error' 
+      });
     } finally {
-      setSaving(false);
+      setDeletingId(null);
     }
   };
 
+  // Helper functions
   const getStatusColor = (status) => {
     if (!status) return 'default';
     switch (status.toLowerCase()) {
@@ -593,27 +480,29 @@ const NotificationPanel = () => {
       case 'approved': return 'success';
       case 'rejected': return 'error';
       case 'completed': return 'info';
+      case 'submitted': return 'info';
       default: return 'default';
     }
   };
 
   const getNotificationIcon = (type) => {
     switch (type) {
-      case 'plant_request': return <NewReleasesIcon />;
-      case 'request_approved': return <CheckCircleIcon />;
-      case 'request_rejected': return <CancelIcon />;
-      case 'planting_record': return <ForestIcon />;
-      default: return <NotificationsIcon />;
+      case 'plant_request':
+      case 'request_submitted': 
+        return <NewReleasesIcon />;
+      case 'request_approved': 
+        return <CheckCircleIcon />;
+      case 'request_rejected': 
+        return <CancelIcon />;
+      case 'planting_record': 
+        return <ForestIcon />;
+      default: 
+        return <NotificationsIcon />;
     }
   };
 
-  // Use the debugged date formatting functions
-  const formatDate = (date) => {
-    return formatDisplayDate(date);
-  };
-
   const formatType = (type) => {
-    if (!type) return "Unknown";
+    if (!type) return "Notification";
     return type.split('_').map(word => 
       word.charAt(0).toUpperCase() + word.slice(1)
     ).join(' ');
@@ -623,65 +512,49 @@ const NotificationPanel = () => {
     return formatDisplayDateTime(date);
   };
 
-  // Combine all notifications: API notifications (admin-only) + planting requests + planting records
+  // Combine all notifications
   const allNotifications = [
-    ...notifications, // These are now filtered to only admin notifications from the backend
+    // Real notifications from API
+    ...notifications.map(notification => ({
+      ...notification,
+      id: notification.id,
+      type: notification.type,
+      title: notification.title,
+      message: notification.message,
+      notif_message: notification.notif_message || notification.message,
+      read: notification.isRead || notification.read || false,
+      timestamp: notification.timestamp || notification.created_at,
+      isRealNotification: true
+    })),
+    // Synthetic notifications from planting requests
     ...plantingRequests.map(request => ({
       id: `request-${request.id}`,
       type: 'plant_request',
-      notification_type: 'pending',
       title: 'New Planting Request',
-      message: `Planter ${request.fullName} has submitted a planting request for ${request.locationName}`,
-      notif_message: `Planter ${request.fullName} has submitted a planting request for ${request.locationName}`,
-      data: {
-        plantRequestId: request.id,
-        userRef: request.userRef,
-        locationRef: request.locationRef,
-        preferredDate: request.preferred_date,
-        requestStatus: request.requestStatus || request.request_status || 'pending'
-      },
-      targetRole: 'admin',
+      message: `Planter ${request.fullName} has submitted a planting request`,
+      notif_message: `Planter ${request.fullName} has submitted a planting request for ${request.location_address}`,
+      data: { plantRequestId: request.id },
       read: false,
-      resolved: false,
-      hidden: false,
-      priority: 'medium',
-      timestamp: request.request_date || new Date().toISOString(),
-      notif_timestamp: request.request_date || new Date().toISOString(),
-      createdAt: request.request_date || new Date().toISOString(),
-      updatedAt: request.request_date || new Date().toISOString()
+      timestamp: request.request_date,
+      isRealNotification: false
     })),
+    // Synthetic notifications from planting records
     ...plantingRecords.map(record => ({
       id: `record-${record.id}`,
       type: 'planting_record',
-      notification_type: 'completed',
       title: 'Planting Activity Completed',
-      message: `Planter ${record.fullName} has planted ${record.treeSeedlingName || record.seedlingRef || 'a tree'} in ${record.locationName}`,
-      notif_message: `Planter ${record.fullName} has planted ${record.treeSeedlingName || record.seedlingRef || 'a tree'} in ${record.locationName}`,
-      data: {
-        plantingRecordId: record.id,
-        userRef: record.userRef,
-        locationRef: record.locationRef,
-        seedlingRef: record.seedlingRef,
-        treeSeedlingName: record.treeSeedlingName,
-        plantingDate: record.plantingDate,
-        record_date: record.record_date,
-        status: 'completed'
-      },
-      targetRole: 'admin',
+      message: `Planter ${record.fullName} has planted a tree`,
+      notif_message: `Planter ${record.fullName} has planted ${record.treeSeedlingName} in ${record.locationName}`,
+      data: { plantingRecordId: record.id },
       read: false,
-      resolved: false,
-      hidden: false,
-      priority: 'low',
-      timestamp: record.record_date || record.createdAt || new Date().toISOString(),
-      notif_timestamp: record.record_date || record.createdAt || new Date().toISOString(),
-      createdAt: record.record_date || record.createdAt || new Date().toISOString(),
-      updatedAt: record.record_date || record.createdAt || new Date().toISOString()
+      timestamp: record.record_date,
+      isRealNotification: false
     }))
-  ].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  ].sort((a, b) => new Date(b.timestamp || b.createdAt) - new Date(a.timestamp || a.createdAt));
 
-  // Filter notifications for each tab
+  // Filter notifications for tabs
   const plantingRequestNotifications = allNotifications.filter(
-    notification => notification.type === 'plant_request'
+    notification => notification.type === 'plant_request' || notification.type === 'request_submitted'
   );
 
   const unreadCount = allNotifications.filter(n => !n.read).length;
@@ -695,10 +568,8 @@ const NotificationPanel = () => {
         mb: 1,
         borderRadius: 2,
         borderLeft: `4px solid ${
-          notification.type === 'plant_request' ? theme.palette.warning.main :
+          notification.type === 'plant_request' || notification.type === 'request_submitted' ? theme.palette.warning.main :
           notification.type === 'planting_record' ? theme.palette.success.main :
-          notification.priority === 'high' ? theme.palette.error.main :
-          notification.priority === 'medium' ? theme.palette.warning.main :
           theme.palette.info.main
         }`,
         backgroundColor: notification.read ? 'background.paper' : alpha(theme.palette.primary.main, 0.04),
@@ -713,16 +584,14 @@ const NotificationPanel = () => {
         }
       }}
       onClick={() => {
-        if (notification.type === 'plant_request') {
-          const request = plantingRequests.find(req => req.id === notification.data.plantRequestId);
-          if (request) {
-            handleViewDetails(request);
-          }
+        if (notification.type === 'plant_request' || notification.type === 'request_submitted') {
+          const requestId = notification.data?.plantRequestId || notification.requestId;
+          const request = plantingRequests.find(req => req.id === requestId);
+          if (request) handleViewDetails(request);
         } else if (notification.type === 'planting_record') {
-          const record = plantingRecords.find(rec => rec.id === notification.data.plantingRecordId);
-          if (record) {
-            handleViewRecord(record);
-          }
+          const recordId = notification.data?.plantingRecordId;
+          const record = plantingRecords.find(rec => rec.id === recordId);
+          if (record) handleViewRecord(record);
         } else {
           handleViewNotification(notification);
         }
@@ -731,10 +600,8 @@ const NotificationPanel = () => {
       <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
         <Box sx={{ 
           color: notification.read ? 'text.secondary' : 
-            notification.type === 'plant_request' ? 'warning.main' :
-            notification.type === 'planting_record' ? 'success.main' :
-            notification.priority === 'high' ? 'error.main' :
-            notification.priority === 'medium' ? 'warning.main' : 'primary.main',
+            (notification.type === 'plant_request' || notification.type === 'request_submitted') ? 'warning.main' :
+            notification.type === 'planting_record' ? 'success.main' : 'primary.main',
           mt: 0.5
         }}>
           {getNotificationIcon(notification.type)}
@@ -747,25 +614,16 @@ const NotificationPanel = () => {
               sx={{ 
                 fontWeight: notification.read ? 'normal' : 'bold',
                 color: notification.read ? 'text.primary' : 
-                  notification.type === 'plant_request' ? 'warning.main' :
+                  (notification.type === 'plant_request' || notification.type === 'request_submitted') ? 'warning.main' :
                   notification.type === 'planting_record' ? 'success.main' : 'primary.main'
               }}
             >
               {notification.title}
             </Typography>
             <Chip 
-              label={
-                notification.type === 'plant_request' ? 'Request' :
-                notification.type === 'planting_record' ? 'Completed' :
-                notification.priority || 'medium'
-              } 
+              label={formatType(notification.type)} 
               size="small" 
-              color={
-                notification.type === 'plant_request' ? 'warning' :
-                notification.type === 'planting_record' ? 'success' :
-                notification.priority === 'high' ? 'error' : 
-                notification.priority === 'medium' ? 'warning' : 'default'
-              }
+              color={getStatusColor(notification.type === 'request_submitted' ? 'submitted' : notification.type)}
               variant="outlined"
             />
             {!notification.read && (
@@ -778,44 +636,37 @@ const NotificationPanel = () => {
             )}
           </Box>
           
-          <Typography 
-            variant="body2" 
-            color="text.secondary" 
-            sx={{ mb: 1 }}
-          >
-            {notification.message || notification.notif_message}
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            {notification.notif_message || notification.message}
           </Typography>
           
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
             <Typography variant="caption" color="text.secondary">
-              {formatDateTime(notification.notif_timestamp || notification.timestamp)}
+              {formatDateTime(notification.timestamp)}
             </Typography>
-            <Typography variant="caption" color="text.secondary">
-              • {formatType(notification.type)}
-            </Typography>
-            {notification.data?.preferredDate && (
+            {notification.fullName && (
               <Typography variant="caption" color="text.secondary">
-                • Preferred: {formatDate(notification.data.preferredDate)}
+                • By: {notification.fullName}
               </Typography>
             )}
-            {notification.data?.record_date && (
+            {notification.location && (
               <Typography variant="caption" color="text.secondary">
-                • Planted: {formatDate(notification.data.record_date)}
+                • Location: {notification.location}
               </Typography>
             )}
           </Box>
         </Box>
         
-        <Box onClick={(e) => e.stopPropagation()}>
+        <Box>
           <IconButton 
             size="small" 
-            onClick={() => handleRemoveNotification(notification.id)}
+            onClick={(e) => handleRemoveNotification(notification.id, e)}
             color="error"
-            disabled={saving}
+            disabled={deletingId === notification.id}
             sx={{ opacity: 0.7, '&:hover': { opacity: 1 } }}
             title="Remove notification"
           >
-            {saving ? <CircularProgress size={20} /> : <DeleteIcon />}
+            {deletingId === notification.id ? <CircularProgress size={20} /> : <DeleteIcon />}
           </IconButton>
         </Box>
       </Box>
@@ -837,34 +688,24 @@ const NotificationPanel = () => {
   // Get current notifications based on active tab
   const getCurrentNotifications = () => {
     switch (activeTab) {
-      case 0: // All Notifications
-        return allNotifications;
-      case 1: // Planting Requests Only
-        return plantingRequestNotifications;
-      default:
-        return allNotifications;
+      case 0: return allNotifications;
+      case 1: return plantingRequestNotifications;
+      default: return allNotifications;
     }
   };
 
   const currentNotifications = getCurrentNotifications();
 
+  // Loading state
   if (loading) {
     return (
       <Box sx={{ display: 'flex', bgcolor: '#f8fafc', minHeight: '100vh' }}>
         <ReForestAppBar handleDrawerToggle={handleDrawerToggle} user={user} onLogout={logout} />
         <Navigation mobileOpen={mobileOpen} handleDrawerToggle={handleDrawerToggle} isMobile={isMobile} user={user} />
-        <Box
-          component="main"
-          sx={{
-            flexGrow: 1,
-            p: 3,
-            width: { md: `calc(100% - ${drawerWidth}px)` },
-            mt: '64px',
-          }}
-        >
+        <Box component="main" sx={{ flexGrow: 1, p: 3, width: { md: `calc(100% - ${drawerWidth}px)` }, mt: '64px' }}>
           <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />
           <Typography variant="body2" color="text.secondary" align="center">
-            Loading admin notifications...
+            Loading notifications...
           </Typography>
         </Box>
       </Box>
@@ -876,21 +717,9 @@ const NotificationPanel = () => {
       <ReForestAppBar handleDrawerToggle={handleDrawerToggle} user={user} onLogout={logout} />
       <Navigation mobileOpen={mobileOpen} handleDrawerToggle={handleDrawerToggle} isMobile={isMobile} user={user} />
 
-      <Box 
-        component="main" 
-        sx={{ 
-          flexGrow: 1, 
-          p: 3, 
-          width: { md: `calc(100% - ${drawerWidth}px)` },
-          mt: '64px'
-        }}
-      >      
+      <Box component="main" sx={{ flexGrow: 1, p: 3, width: { md: `calc(100% - ${drawerWidth}px)` }, mt: '64px' }}>      
         {alert.open && (
-          <Alert 
-            severity={alert.severity} 
-            onClose={() => setAlert({ ...alert, open: false })}
-            sx={{ mb: 2 }}
-          >
+          <Alert severity={alert.severity} onClose={() => setAlert({ ...alert, open: false })} sx={{ mb: 2 }}>
             {alert.message}
           </Alert>
         )}
@@ -899,10 +728,10 @@ const NotificationPanel = () => {
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 2 }}>
             <Box>
               <Typography variant="h4" sx={{ color: '#2e7d32', fontWeight: 600 }}>
-                Admin Notifications Center
+                Notifications Center
               </Typography>
               <Typography variant="body1" color="text.secondary">
-                View and manage admin notifications and activities
+                View and manage all notifications and activities
               </Typography>
             </Box>
             <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
@@ -914,7 +743,7 @@ const NotificationPanel = () => {
                   color="primary"
                   disabled={saving}
                 >
-                  {saving ? 'Marking...' : 'Mark All as Read'}
+                  {saving ? 'Marking...' : `Mark All Read (${unreadCount})`}
                 </Button>
               )}
               <Button
@@ -929,85 +758,23 @@ const NotificationPanel = () => {
           </Box>
         </Box>
 
-        {/* Two Tabs: All Notifications and Planting Requests */}
+        {/* Tabs */}
         <Paper sx={{ mb: 3, borderRadius: 2, boxShadow: 2 }}>
-          <Tabs 
-            value={activeTab}
-            onChange={handleTabChange}
-            sx={{
-              '& .MuiTab-root': { 
-                fontWeight: 600,
-                minHeight: 70,
-                textTransform: 'none',
-                fontSize: '0.95rem'
-              },
-              '& .Mui-selected': { 
-                color: '#2e7d32'
-              },
-              '& .MuiTabs-indicator': {
-                backgroundColor: '#2e7d32',
-                height: 3
-              }
-            }}
-          >
+          <Tabs value={activeTab} onChange={handleTabChange} sx={{
+            '& .MuiTab-root': { fontWeight: 600, minHeight: 70, textTransform: 'none', fontSize: '0.95rem' },
+            '& .Mui-selected': { color: '#2e7d32' },
+            '& .MuiTabs-indicator': { backgroundColor: '#2e7d32', height: 3 }
+          }}>
             <Tab 
-              icon={
-                <Badge 
-                  badgeContent={unreadCount} 
-                  color="error"
-                  sx={{ 
-                    '& .MuiBadge-badge': { 
-                      right: -3, 
-                      top: 3,
-                      fontSize: '0.7rem',
-                      minWidth: 18,
-                      height: 18
-                    } 
-                  }}
-                >
-                  <NotificationsIcon />
-                </Badge>
-              }
-              label={
-                <Box>
-                  <Typography variant="body2" fontWeight="600">
-                    All Admin Notifications
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {allNotifications.length} total • {plantingRequests.length} requests • {plantingRecords.length} records
-                  </Typography>
-                </Box>
-              }
+              icon={<Badge badgeContent={unreadCount} color="error"><NotificationsIcon /></Badge>}
+              label={<Box><Typography variant="body2" fontWeight="600">All Notifications</Typography>
+                     <Typography variant="caption" color="text.secondary">{allNotifications.length} total</Typography></Box>}
               iconPosition="start"
             />
             <Tab 
-              icon={
-                <Badge 
-                  badgeContent={plantingRequestUnreadCount} 
-                  color="error"
-                  sx={{ 
-                    '& .MuiBadge-badge': { 
-                      right: -3, 
-                      top: 3,
-                      fontSize: '0.7rem',
-                      minWidth: 18,
-                      height: 18
-                    } 
-                  }}
-                >
-                  <AssignmentIcon />
-                </Badge>
-              }
-              label={
-                <Box>
-                  <Typography variant="body2" fontWeight="600">
-                    Planting Requests
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {plantingRequestNotifications.length} requests pending review
-                  </Typography>
-                </Box>
-              }
+              icon={<Badge badgeContent={plantingRequestUnreadCount} color="error"><AssignmentIcon /></Badge>}
+              label={<Box><Typography variant="body2" fontWeight="600">Planting Requests</Typography>
+                     <Typography variant="caption" color="text.secondary">{plantingRequestNotifications.length} requests</Typography></Box>}
               iconPosition="start"
             />
           </Tabs>
@@ -1016,19 +783,16 @@ const NotificationPanel = () => {
         {/* Tab Content */}
         {activeTab === 0 && (
           <>
-            <Typography variant="h6" sx={{ color: '#2e7d32', fontWeight: 600, mb: 2 }}>
-              All Admin Notifications
-            </Typography>
-            
+            <Typography variant="h6" sx={{ color: '#2e7d32', fontWeight: 600, mb: 2 }}>All Notifications</Typography>
             {allNotifications.length === 0 ? (
               <EmptyState 
                 icon={NotificationsIcon}
-                title="No admin notifications available"
-                description="New admin notifications will appear here when available"
+                title="No notifications available"
+                description="New notifications will appear here when available"
               />
             ) : (
               <Box>
-                {allNotifications.map((notification) => (
+                {currentNotifications.map((notification) => (
                   <NotificationRow key={notification.id} notification={notification} />
                 ))}
               </Box>
@@ -1038,10 +802,7 @@ const NotificationPanel = () => {
 
         {activeTab === 1 && (
           <>
-            <Typography variant="h6" sx={{ color: '#2e7d32', fontWeight: 600, mb: 2 }}>
-              Planting Requests
-            </Typography>
-            
+            <Typography variant="h6" sx={{ color: '#2e7d32', fontWeight: 600, mb: 2 }}>Planting Requests</Typography>
             {plantingRequestNotifications.length === 0 ? (
               <EmptyState 
                 icon={AssignmentIcon}
@@ -1050,7 +811,7 @@ const NotificationPanel = () => {
               />
             ) : (
               <Box>
-                {plantingRequestNotifications.map((notification) => (
+                {currentNotifications.map((notification) => (
                   <NotificationRow key={notification.id} notification={notification} />
                 ))}
               </Box>
@@ -1058,68 +819,179 @@ const NotificationPanel = () => {
           </>
         )}
 
-        {/* Detail Dialog for Planting Requests - DEBUGGED DATE DISPLAY */}
-        <Dialog open={detailDialogOpen} onClose={() => setDetailDialogOpen(false)} maxWidth="md" fullWidth>
-          <DialogTitle>Planting Request Details</DialogTitle>
-          <DialogContent>
+        {/* ========== UPDATED PLANTING REQUEST DETAILS DIALOG ========== */}
+        <Dialog 
+          open={detailDialogOpen} 
+          onClose={() => setDetailDialogOpen(false)} 
+          maxWidth="sm" 
+          fullWidth
+        >
+          <DialogTitle>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Typography variant="h6">Request Details</Typography>
+              <IconButton onClick={() => setDetailDialogOpen(false)} size="small">
+                <CloseIcon />
+              </IconButton>
+            </Box>
+          </DialogTitle>
+          <DialogContent dividers>
             {selectedRequest && (
-              <Grid container spacing={2} sx={{ mt: 1 }}>
-                <Grid item xs={12} md={6}>
-                  <Typography variant="subtitle2" color="text.secondary">Requester Information</Typography>
-                  <Box sx={{ mt: 1, p: 2, bgcolor: '#f5f5f5', borderRadius: 1 }}>
-                    {/* Use fullName directly from planting request data */}
-                    <Typography><strong>Name:</strong> {selectedRequest.fullName || 'Unknown User'}</Typography>
-                    <Typography><strong>Email:</strong> {selectedRequest.userEmail || 'No email'}</Typography>
-                    <Typography><strong>Organization:</strong> {selectedRequest.organization || 'None'}</Typography>
+              <Stack spacing={3}>
+                {/* Planter Information */}
+                <Box>
+                  <Typography variant="subtitle1" fontWeight="600" gutterBottom>
+                    <PersonIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5 }} />
+                    Planter Information
+                  </Typography>
+                  <Card variant="outlined" sx={{ p: 2 }}>
+                    <Stack spacing={2}>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          Name
+                        </Typography>
+                        <Typography variant="body1" fontWeight="600">
+                          {selectedRequest.fullName || 'Unknown User'}
+                        </Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          Email
+                        </Typography>
+                        <Typography variant="body1">
+                          {selectedRequest.userEmail || 'No email'}
+                        </Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          Organization
+                        </Typography>
+                        <Typography variant="body1">
+                          {selectedRequest.organization || 'Volunteer Planter'}
+                        </Typography>
+                      </Box>
+                    </Stack>
+                  </Card>
+                </Box>
+
+                {/* Request Details */}
+                <Box>
+                  <Typography variant="subtitle1" fontWeight="600" gutterBottom>
+                    <CalendarTodayIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5 }} />
+                    Request Details
+                  </Typography>
+                  <Card variant="outlined" sx={{ p: 2 }}>
+                    <Stack spacing={2}>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          Request Date
+                        </Typography>
+                        <Typography variant="body1" fontWeight="600">
+                          {selectedRequest.formatted_request_date || 'N/A'}
+                        </Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          Preferred Planting Date
+                        </Typography>
+                        <Typography variant="body1" fontWeight="600">
+                          {selectedRequest.formatted_preferred_date || 'N/A'}
+                        </Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          Status
+                        </Typography>
+                        <Chip 
+                          label={selectedRequest.requestStatus || selectedRequest.request_status || 'pending'} 
+                          color={getStatusColor(selectedRequest.requestStatus || selectedRequest.request_status || 'pending')}
+                          size="small"
+                          sx={{ fontWeight: 600 }}
+                        />
+                      </Box>
+                      {selectedRequest.request_notes && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                            Additional Notes
+                          </Typography>
+                          <Paper elevation={0} sx={{ p: 1.5, bgcolor: 'grey.50', borderRadius: 1 }}>
+                            <Typography variant="body2">
+                              {selectedRequest.request_notes}
+                            </Typography>
+                          </Paper>
+                        </Box>
+                      )}
+                    </Stack>
+                  </Card>
+                </Box>
+                
+                {/* Location */}
+                <Box>
+                  <Typography variant="subtitle1" fontWeight="600" gutterBottom>
+                    <LocationOnIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5 }} />
+                    Planting Location
+                  </Typography>
+                  <Card variant="outlined" sx={{ p: 2 }}>
+                    <Typography variant="body1" fontWeight="600">
+                      {selectedRequest.location_address || 'Unknown Location'}
+                    </Typography>
+                  </Card>
+                </Box>
+                
+                {/* Assigned Seedling - Placeholder for future implementation */}
+                {selectedRequest.seedlingRef && (
+                  <Box>
+                    <Typography variant="subtitle1" fontWeight="600" gutterBottom>
+                      <ForestIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5, color: 'success.main' }} />
+                      Assigned Seedling
+                    </Typography>
+                    <Card variant="outlined" sx={{ p: 2, bgcolor: 'rgba(46, 125, 50, 0.05)' }}>
+                      <Stack spacing={2}>
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Seedling Reference
+                          </Typography>
+                          <Typography variant="body1" fontWeight="600">
+                            {selectedRequest.seedlingRef}
+                          </Typography>
+                        </Box>
+                        <Box>
+                          <Chip 
+                            icon={<ForestIcon />} 
+                            label="Seedling Assigned" 
+                            color="success" 
+                            size="small"
+                            sx={{ fontWeight: 600 }}
+                          />
+                        </Box>
+                      </Stack>
+                    </Card>
                   </Box>
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <Typography variant="subtitle2" color="text.secondary">Location Information</Typography>
-                  <Box sx={{ mt: 1, p: 2, bgcolor: '#f5f5f5', borderRadius: 1 }}>
-                    <Typography><strong>Location:</strong> {selectedRequest.locationName || 'Unknown Location'}</Typography>
-                    <Typography><strong>Address:</strong> {selectedRequest.location_address || 'N/A'}</Typography>
-                    {selectedRequest.location_lat && selectedRequest.location_lng && (
-                      <Typography variant="caption">
-                        Coordinates: {selectedRequest.location_lat}, {selectedRequest.location_lng}
-                      </Typography>
-                    )}
-                  </Box>
-                </Grid>
-                <Grid item xs={12}>
-                  <Typography variant="subtitle2" color="text.secondary">Request Details</Typography>
-                  <Box sx={{ mt: 1, p: 2, bgcolor: '#f5f5f5', borderRadius: 1 }}>
-                    <Typography>
-                      <strong>Preferred Date:</strong> {selectedRequest.formatted_preferred_date || 'N/A'}
-                    </Typography>
-                    <Typography>
-                      <strong>Submitted At:</strong> {selectedRequest.formatted_created_at || 'N/A'}
-                    </Typography>
-                    <Typography>
-                      <strong>Request Date:</strong> {selectedRequest.formatted_request_date || 'N/A'}
-                    </Typography>
-                    <Typography>
-                      <strong>Status:</strong> 
-                      <Chip 
-                        label={selectedRequest.requestStatus || selectedRequest.request_status || 'pending'} 
-                        color={getStatusColor(selectedRequest.requestStatus || selectedRequest.request_status || 'pending')}
-                        size="small"
-                        sx={{ ml: 1 }}
-                      />
-                    </Typography>
-                    {selectedRequest.request_notes && (
-                      <Typography sx={{ mt: 1 }}><strong>Notes:</strong> {selectedRequest.request_notes}</Typography>
-                    )}
-                  </Box>
-                </Grid>
-              </Grid>
+                )}
+              </Stack>
             )}
           </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setDetailDialogOpen(false)}>Close</Button>
+          <DialogActions sx={{ p: 2 }}>
+            <Button 
+              variant="contained" 
+              onClick={() => {
+                setDetailDialogOpen(false);
+                // You can add assign seedling functionality here if needed
+              }}
+              startIcon={<CheckCircleIcon />}
+              sx={{
+                bgcolor: '#2e7d32',
+                '&:hover': { bgcolor: '#1b5e20' }
+              }}
+            >
+              View Full Details
+            </Button>
+            <Button onClick={() => setDetailDialogOpen(false)} variant="outlined">
+              Close
+            </Button>
           </DialogActions>
         </Dialog>
 
-        {/* Detail Dialog for Planting Records - DEBUGGED DATE DISPLAY */}
+        {/* Detail Dialog for Planting Records */}
         <Dialog open={recordDialogOpen} onClose={() => setRecordDialogOpen(false)} maxWidth="md" fullWidth>
           <DialogTitle>Planting Record Details</DialogTitle>
           <DialogContent>
