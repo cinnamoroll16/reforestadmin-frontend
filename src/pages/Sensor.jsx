@@ -1,4 +1,4 @@
-// src/pages/Sensors.js - UPDATED WITH HISTORY IN OVERVIEW TAB
+// src/pages/Sensors.js - UPDATED WITH FIXED LOCATION DISPLAY
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { apiService } from '../services/api';
 import {
@@ -41,7 +41,6 @@ import {
   LocationOn as LocationIcon,
   Thermostat as ThermostatIcon,
   WaterDrop as WaterDropIcon,
-  Science as pHIcon,
   Refresh as RefreshIcon,
   Info as InfoIcon,
   History as HistoryIcon,
@@ -68,6 +67,7 @@ const BACKEND_CONFIG = {
     SENSORS: '/api/sensors',
     SENSOR_DATA: (sensorId) => `/api/sensors/${sensorId}/data`,
     LOCATIONS: '/api/locations',
+    LOCATION_BY_ID: (locationId) => `/api/locations/${locationId}`,
     HEALTH: '/health'
   }
 };
@@ -549,7 +549,59 @@ function Sensors() {
   }, [showNotification]);
 
   // ============================================================================
-  // FETCH SENSORS FROM BACKEND
+// FETCH LOCATIONS FROM BACKEND - DEBUG VERSION
+// ============================================================================
+const fetchLocations = useCallback(async () => {
+  try {
+    console.log('📍 Fetching locations from backend...');
+    const locationsData = await apiService.getLocations();
+    
+    console.log('📍 Raw locations data from API:', locationsData);
+    
+    const locationsMap = {};
+    if (Array.isArray(locationsData)) {
+      locationsData.forEach((location) => {
+        if (location && location.id) {
+          const locationData = {
+            id: location.id,
+            location_name: location.location_name || 'Unknown Location',
+            location_latitude: location.location_latitude,
+            location_longitude: location.location_longitude,
+            sensor_id: location.sensor_id,
+            created_by: location.created_by,
+            is_active: location.is_active,
+            last_updated: location.last_updated
+          };
+          
+          // CRITICAL FIX: Only store under the actual location ID
+          // Don't create multiple artificial keys that don't exist in your data
+          locationsMap[location.id] = locationData;
+          
+          // Also store under sensor_id if it exists and is different
+          if (location.sensor_id && location.sensor_id !== location.id) {
+            locationsMap[location.sensor_id] = locationData;
+          }
+          
+          console.log(`📍 Mapped location: "${location.location_name}"`);
+          console.log(`   - Location ID: ${location.id}`);
+          console.log(`   - Sensor ID: ${location.sensor_id}`);
+        }
+      });
+    }
+    
+    console.log(`✅ Loaded ${Object.keys(locationsMap).length} location mappings`);
+    console.log('📍 Final location keys:', Object.keys(locationsMap));
+    
+    return locationsMap;
+  } catch (error) {
+    console.error('❌ Error fetching locations:', error);
+    showNotification('Failed to load location data', 'warning');
+    return {};
+  }
+}, [showNotification]);
+
+  // ============================================================================
+  // FETCH SENSORS FROM BACKEND - FIXED LOCATION HANDLING
   // ============================================================================
   const fetchSensorsFromBackend = useCallback(async () => {
     try {
@@ -617,71 +669,127 @@ function Sensors() {
   };
 
   // ============================================================================
-  // FETCH LOCATIONS FROM BACKEND
-  // ============================================================================
-  const fetchLocations = useCallback(async () => {
-    try {
-      console.log('📍 Fetching locations from backend...');
-      const locationsData = await apiService.getLocations();
-      
-      const locationsMap = {};
-      locationsData.forEach((location) => {
-        locationsMap[location.id] = location;
-      });
-      
-      console.log(`✅ Loaded ${Object.keys(locationsMap).length} locations`);
-      return locationsMap;
-    } catch (error) {
-      console.error('❌ Error fetching locations:', error);
-      showNotification('Failed to load location data', 'warning');
-      return {};
-    }
-  }, [showNotification]);
-
-  // ============================================================================
-  // INITIALIZE DATA
+  // INITIALIZE DATA - FIXED LOCATION PROCESSING
   // ============================================================================
   useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const [sensorsData, locationsData] = await Promise.all([
-          fetchSensorsFromBackend(),
-          fetchLocations()
-        ]);
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const [sensorsData, locationsData] = await Promise.all([
+        fetchSensorsFromBackend(),
+        fetchLocations()
+      ]);
 
-        // Process sensors with location information
-        const processedSensors = sensorsData.map(sensor => {
-          const locationInfo = locationsData[sensor.location_id];
-          
-          return {
-            ...sensor,
-            location: locationInfo?.location_name || sensor.sensor_location || `Location ${sensor.location_id}`,
-            locationRef: sensor.location_id ? `/locations/${sensor.location_id}` : null,
-            status: sensor.sensor_status || "Unknown",
-            statusDescription: `Sensor is currently ${sensor.sensor_status || 'Unknown'}`,
-            lastCalibration: sensor.sensor_lastCalibrationDate || null,
+      console.log('🔄 DEBUG: Processing sensors with locations...');
+      console.log('📍 Available location IDs in map:', Object.keys(locationsData));
+      console.log('📡 Raw sensors from backend:', sensorsData);
+
+      // Process sensors with location information - DEBUG VERSION
+      const processedSensors = sensorsData.map(sensor => {
+        console.log(`\n🔍 DEBUG Processing sensor: ${sensor.id}`);
+        console.log('   - sensor.location_id:', sensor.location_id);
+        console.log('   - sensor.sensor_location:', sensor.sensor_location);
+        console.log('   - sensor.coordinates:', sensor.coordinates);
+
+        let locationInfo = null;
+        let locationId = null;
+
+        // STRATEGY 1: Try direct location_id match
+        if (sensor.location_id && locationsData[sensor.location_id]) {
+          locationInfo = locationsData[sensor.location_id];
+          locationId = sensor.location_id;
+          console.log(`   ✅ Found location via direct location_id: ${sensor.location_id}`);
+        }
+        // STRATEGY 2: Try to extract location ID from path
+        else if (sensor.location_id && sensor.location_id.includes('/')) {
+          const extractedId = sensor.location_id.split('/').pop();
+          if (locationsData[extractedId]) {
+            locationInfo = locationsData[extractedId];
+            locationId = extractedId;
+            console.log(`   ✅ Found location via extracted ID: ${extractedId}`);
+          }
+        }
+        // STRATEGY 3: Try sensor ID as location key
+        else if (locationsData[sensor.id]) {
+          locationInfo = locationsData[sensor.id];
+          locationId = sensor.id;
+          console.log(`   ✅ Found location via sensor ID: ${sensor.id}`);
+        }
+        // STRATEGY 4: Try to find location by sensor_id reference
+        else {
+          // Look for any location that references this sensor
+          const matchingLocation = Object.values(locationsData).find(
+            loc => loc.sensor_id === sensor.id
+          );
+          if (matchingLocation) {
+            locationInfo = matchingLocation;
+            locationId = matchingLocation.id;
+            console.log(`   ✅ Found location via sensor_id reference: ${matchingLocation.id}`);
+          }
+        }
+
+        // Get location details
+        let locationName = 'Unknown Location';
+        let locationCoordinates = null;
+        let sensorId = null;
+        let isActive = true;
+
+        if (locationInfo) {
+          locationName = locationInfo.location_name || 'Unknown Location';
+          locationCoordinates = {
+            latitude: locationInfo.location_latitude || sensor.latitude,
+            longitude: locationInfo.location_longitude || sensor.longitude
           };
-        });
+          sensorId = locationInfo.sensor_id;
+          isActive = locationInfo.is_active !== false;
+          console.log(`   🎯 Final location: "${locationName}"`);
+        } else {
+          locationName = sensor.sensor_location || `Location ${sensor.id}`;
+          locationCoordinates = sensor.coordinates || {
+            latitude: sensor.latitude,
+            longitude: sensor.longitude
+          };
+          console.log(`   ⚠️ No location found, using fallback: "${locationName}"`);
+          console.log('   🔍 Available locations were:', Object.keys(locationsData));
+        }
 
-        setSensors(processedSensors);
-        setLocations(locationsData);
-        console.log(`🎯 Processed ${processedSensors.length} sensors with location data`);
+        return {
+          ...sensor,
+          location: locationName,
+          locationCoordinates: locationCoordinates,
+          sensor_id: sensorId || sensor.id,
+          is_active: isActive,
+          locationRef: sensor.location_id,
+          location_id: locationId,
+          status: sensor.sensor_status || "Unknown",
+          statusDescription: `Sensor is currently ${sensor.sensor_status || 'Unknown'}`,
+          lastCalibration: sensor.sensor_lastCalibrationDate || null,
+        };
+      });
 
-      } catch (error) {
-        console.error("Error fetching data:", error);
-        setError('Failed to fetch sensor data: ' + error.message);
-        showNotification('Error loading sensors: ' + error.message, 'error');
-      } finally {
-        setLoading(false);
-      }
-    };
+      setSensors(processedSensors);
+      setLocations(locationsData);
+      
+      // Final debug summary
+      console.log('\n📊 FINAL DEBUG SUMMARY:');
+      console.log(`   - Processed ${processedSensors.length} sensors`);
+      processedSensors.forEach(sensor => {
+        console.log(`   - Sensor ${sensor.id} → Location: "${sensor.location}"`);
+      });
 
-    fetchData();
-  }, [fetchSensorsFromBackend, fetchLocations, showNotification]);
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      setError('Failed to fetch sensor data: ' + error.message);
+      showNotification('Error loading sensors: ' + error.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  fetchData();
+}, [fetchSensorsFromBackend, fetchLocations, showNotification]);
   // ============================================================================
-  // REFRESH HANDLER
+  // REFRESH HANDLER - FIXED LOCATION PROCESSING
   // ============================================================================
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -697,13 +805,56 @@ function Sensors() {
         fetchLocations()
       ]);
 
+      // Process sensors with location information - FIXED VERSION
       const processedSensors = sensorsData.map(sensor => {
-        const locationInfo = locationsData[sensor.location_id];
+        let locationId = sensor.location_id;
+        let locationInfo = null;
         
+        // Try multiple lookup strategies
+        const possibleKeys = [
+          sensor.location_id,
+          sensor.location_id?.split('/').pop(),
+          sensor.id,
+          `s${sensor.id.replace('s', '')}`,
+        ].filter(Boolean);
+
+        for (const key of possibleKeys) {
+          if (locationsData[key]) {
+            locationInfo = locationsData[key];
+            locationId = key;
+            break;
+          }
+        }
+
+        let locationName = 'Unknown Location';
+        let locationCoordinates = null;
+        let sensorId = null;
+        let isActive = true;
+
+        if (locationInfo) {
+          locationName = locationInfo.location_name || 'Unknown Location';
+          locationCoordinates = {
+            latitude: locationInfo.location_latitude || sensor.latitude,
+            longitude: locationInfo.location_longitude || sensor.longitude
+          };
+          sensorId = locationInfo.sensor_id;
+          isActive = locationInfo.is_active !== false;
+        } else {
+          locationName = sensor.sensor_location || `Location ${sensor.id}`;
+          locationCoordinates = sensor.coordinates || {
+            latitude: sensor.latitude,
+            longitude: sensor.longitude
+          };
+        }
+
         return {
           ...sensor,
-          location: locationInfo?.location_name || sensor.sensor_location || `Location ${sensor.location_id}`,
-          locationRef: sensor.location_id ? `/locations/${sensor.location_id}` : null,
+          location: locationName,
+          locationCoordinates: locationCoordinates,
+          sensor_id: sensorId || sensor.id,
+          is_active: isActive,
+          locationRef: sensor.location_id,
+          location_id: locationId,
           status: sensor.sensor_status || "Unknown",
           statusDescription: `Sensor is currently ${sensor.sensor_status || 'Unknown'}`,
           lastCalibration: sensor.sensor_lastCalibrationDate || null,
@@ -1035,12 +1186,17 @@ function Sensors() {
                         </TableCell>
                         <TableCell>
                           <Box>
-                            <Typography variant="body2" noWrap sx={{ maxWidth: 150 }}>
-                              {sensor.location}
+                            <Typography variant="body2" noWrap sx={{ maxWidth: 200, fontWeight: 'medium' }}>
+                              {sensor.location} {/* This should now show "Cebu City, Philippines" */}
                             </Typography>
-                            {sensor.coordinates && (
+                            {sensor.locationCoordinates && (
                               <Typography variant="caption" color="text.secondary">
-                                {sensor.coordinates.latitude.toFixed(4)}°, {sensor.coordinates.longitude.toFixed(4)}°
+                                {sensor.locationCoordinates.latitude?.toFixed(6)}°, {sensor.locationCoordinates.longitude?.toFixed(6)}°
+                              </Typography>
+                            )}
+                            {sensor.sensor_id && sensor.sensor_id !== sensor.id && (
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                Sensor: {sensor.sensor_id}
                               </Typography>
                             )}
                           </Box>
@@ -1150,7 +1306,7 @@ function Sensors() {
           </Paper>
         )}
 
-        {/* ========== SENSOR DETAIL DIALOG (Single Tab with History) ========== */}
+        {/* ========== SENSOR DETAIL DIALOG (FIXED LOCATION DISPLAY) ========== */}
         <Dialog 
           open={sensorDetailOpen} 
           onClose={handleCloseSensorDetail}
@@ -1160,31 +1316,55 @@ function Sensors() {
           <DialogTitle>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Typography variant="h6">
-                Sensor Details: {selectedSensor?.id}
+                Sensor Details Information
               </Typography>
-              <IconButton onClick={handleCloseSensorDetail} size="small">
-                <CloseIcon />
-              </IconButton>
             </Box>
           </DialogTitle>
           <DialogContent dividers>
             {selectedSensor && (
               <Box>
                 <Grid container spacing={3}>
-                  {/* Location Info */}
+                  {/* Location Info - FIXED */}
                   <Grid item xs={12}>
                     <Card variant="outlined">
                       <CardContent>
                         <Typography variant="subtitle2" color="text.secondary" gutterBottom>
                           <LocationIcon sx={{ fontSize: 16, verticalAlign: 'middle', mr: 0.5 }} />
-                          Location
+                          Location Information
                         </Typography>
-                        <Typography variant="h6">{selectedSensor.location}</Typography>
-                        {selectedSensor.coordinates && (
-                          <Typography variant="body2" color="text.secondary">
-                            Coordinates: {selectedSensor.coordinates.latitude.toFixed(6)}°, {selectedSensor.coordinates.longitude.toFixed(6)}°
+                        
+                        {/* LOCATION NAME - This should now show "Cebu City, Philippines" */}
+                        <Typography variant="h6" sx={{ mb: 1 }}>
+                          {selectedSensor.location}
+                        </Typography>
+                        
+                        {/* COORDINATES */}
+                        {selectedSensor.locationCoordinates && (
+                          <Box sx={{ mb: 1 }}>
+                            <Typography variant="body2" color="text.secondary">
+                              <strong>Coordinates:</strong> {selectedSensor.locationCoordinates.latitude?.toFixed(6)}°, {selectedSensor.locationCoordinates.longitude?.toFixed(6)}°
+                            </Typography>
+                          </Box>
+                        )}
+                        
+                        {/* SENSOR ID */}
+                        {selectedSensor.sensor_id && (
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                            <strong>Sensor ID:</strong> {selectedSensor.sensor_id}
                           </Typography>
                         )}
+                        
+                        {/* STATUS */}
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            <strong>Status:</strong>
+                          </Typography>
+                          <Chip 
+                            label={selectedSensor.is_active ? 'Active' : 'Inactive'} 
+                            color={selectedSensor.is_active ? 'success' : 'error'}
+                            size="small"
+                          />
+                        </Box>
                       </CardContent>
                     </Card>
                   </Grid>
@@ -1194,7 +1374,7 @@ function Sensors() {
                     <Card variant="outlined" sx={{ bgcolor: '#e3f2fd' }}>
                       <CardContent>
                         <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                          <pHIcon sx={{ fontSize: 16, verticalAlign: 'middle', mr: 0.5 }} />
+                          <ScienceIcon sx={{ fontSize: 16, verticalAlign: 'middle', mr: 0.5 }} />
                           pH Level
                         </Typography>
                         <Typography variant="h4">{formatValue(selectedSensor.pH)}</Typography>
@@ -1243,11 +1423,27 @@ function Sensors() {
                           Status & Calibration
                         </Typography>
                         <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-                          <Chip
-                            label={selectedSensor.status}
-                            color={getStatusColor(selectedSensor.status)}
-                            icon={getStatusIcon(selectedSensor.status)}
-                          />
+                          {/* Status Display */}
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            {getStatusIcon(selectedSensor.status)}
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                fontWeight: 600,
+                                color:
+                                  getStatusColor(selectedSensor.status) === 'success'
+                                    ? 'success.main'
+                                    : getStatusColor(selectedSensor.status) === 'warning'
+                                    ? 'warning.main'
+                                    : getStatusColor(selectedSensor.status) === 'error'
+                                    ? 'error.main'
+                                    : 'text.primary',
+                              }}
+                            >
+                              {selectedSensor.status}
+                            </Typography>
+                          </Box>
+
                           <Typography variant="body2" color="text.secondary">
                             Last calibration: {selectedSensor.lastCalibration || 'N/A'}
                           </Typography>
@@ -1255,6 +1451,7 @@ function Sensors() {
                       </CardContent>
                     </Card>
                   </Grid>
+
                 </Grid>
 
                 {/* Divider before history */}
