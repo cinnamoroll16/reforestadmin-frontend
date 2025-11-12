@@ -264,8 +264,6 @@ const SeedlingAssignmentPage = () => {
 
   // Fetch ALL data needed for the page
   useEffect(() => {
-    if (!currentRecommendation) return;
-
     setLoading(true);
     
     const fetchData = async () => {
@@ -324,7 +322,7 @@ const SeedlingAssignmentPage = () => {
     };
 
     fetchData();
-  }, [currentRecommendation]);
+  }, []);
 
   // Get recommended seedlings
   const getRecommendedSeedlings = () => {
@@ -378,7 +376,7 @@ const SeedlingAssignmentPage = () => {
         data: {
           requestId: request.id,
           locationName: request.locationName,
-          recommendationId: currentRecommendation.id,
+          recommendationId: currentRecommendation?.id,
           seedlingName: seedlingDetails.seedling_commonName
         },
         targetUser: targetUser,
@@ -406,6 +404,14 @@ const SeedlingAssignmentPage = () => {
   };
 
   const handleAssignSeedling = (request) => {
+    if (!currentRecommendation) {
+      setAlert({ 
+        open: true, 
+        message: 'Please select a recommendation first to assign seedlings', 
+        severity: 'warning' 
+      });
+      return;
+    }
     setSelectedRequest(request);
     setAssignDialogOpen(true);
   };
@@ -567,6 +573,7 @@ const SeedlingAssignmentPage = () => {
     const isAssigned = isRequestAssigned(request.id);
     const assignedSeedlingId = getAssignedSeedling(request.id);
     const assignedSeedling = assignedSeedlingId ? seedlings.find(s => s.id === assignedSeedlingId) : null;
+    const hasRecommendation = !!currentRecommendation;
 
     return (
       <Paper 
@@ -689,15 +696,18 @@ const SeedlingAssignmentPage = () => {
               </Alert>
             ) : (
               <Alert 
-                severity="info"
-                icon={<InfoIcon />}
+                severity={hasRecommendation ? "info" : "warning"}
+                icon={hasRecommendation ? <InfoIcon /> : <WarningIcon />}
                 sx={{ 
                   borderRadius: 1,
-                  bgcolor: alpha('#1976d2', 0.05)
+                  bgcolor: hasRecommendation ? alpha('#1976d2', 0.05) : alpha('#ed6c02', 0.05)
                 }}
               >
                 <Typography variant="body2" fontWeight="600">
-                  Ready for seedling assignment
+                  {hasRecommendation 
+                    ? "Ready for seedling assignment" 
+                    : "Select a recommendation to assign seedlings"
+                  }
                 </Typography>
               </Alert>
             )}
@@ -717,7 +727,7 @@ const SeedlingAssignmentPage = () => {
                   bgcolor: isAssigned ? '#1b5e20' : '#2e7d32'
                 }
               }}
-              disabled={recommendedSeedlings.length === 0}
+              disabled={!hasRecommendation || recommendedSeedlings.length === 0}
             >
               {isAssigned ? "Reassign" : "Assign"}
             </Button>
@@ -737,22 +747,6 @@ const SeedlingAssignmentPage = () => {
           <Toolbar />
           <LinearProgress sx={{ color: '#2e7d32' }} />
           <Typography sx={{ mt: 2 }}>Loading assignment data...</Typography>
-        </Box>
-      </Box>
-    );
-  }
-
-  // No recommendation selected state
-  if (!currentRecommendation) {
-    return (
-      <Box sx={{ display: 'flex', bgcolor: '#f5f7fa', minHeight: '100vh' }}>
-        <ReForestAppBar handleDrawerToggle={handleDrawerToggle} user={user} onLogout={logout} />
-        <Navigation mobileOpen={mobileOpen} handleDrawerToggle={handleDrawerToggle} isMobile={isMobile} />
-        <Box component="main" sx={{ flexGrow: 1, p: 3, width: { md: `calc(100% - ${drawerWidth}px)` } }}>
-          <Toolbar />
-          <Alert severity="error" sx={{ borderRadius: 2 }}>
-            No recommendation selected. Please select a recommendation from the Recommendations page.
-          </Alert>
         </Box>
       </Box>
     );
@@ -784,7 +778,9 @@ const SeedlingAssignmentPage = () => {
               p: 4, 
               mb: 3, 
               borderRadius: 3,
-              background: 'linear-gradient(135deg, #37983cff 0%, #1b5e20 100%)',
+              background: currentRecommendation 
+                ? 'linear-gradient(135deg, #37983cff 0%, #1b5e20 100%)'
+                : 'linear-gradient(135deg, #666666 0%, #424242 100%)',
               color: 'white',
               position: 'relative',
               overflow: 'hidden'
@@ -798,7 +794,7 @@ const SeedlingAssignmentPage = () => {
                       width: 80, 
                       height: 80,
                       bgcolor: 'white',
-                      color: '#2e7d32',
+                      color: currentRecommendation ? '#2e7d32' : '#666666',
                       fontSize: '2rem',
                       fontWeight: 700,
                       boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
@@ -810,85 +806,122 @@ const SeedlingAssignmentPage = () => {
                   
                   <Box>
                     <Typography variant="overline" sx={{ opacity: 0.9, fontSize: '0.75rem', letterSpacing: 1 }}>
-                      Active Recommendation
+                      {currentRecommendation ? 'Active Recommendation' : 'No Recommendation Selected'}
                     </Typography>
                     <Typography variant="h4" fontWeight="700" sx={{ lineHeight: 1.2, mb: 1 }}>
-                      {seedlings.length} Seedling{seedlings.length !== 1 ? 's' : ''} Available
+                      {currentRecommendation 
+                        ? `${seedlings.length} Seedling${seedlings.length !== 1 ? 's' : ''} Available`
+                        : 'Select a Recommendation'
+                      }
                     </Typography>
                     
                     {/* Location Information */}
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
-                      <LocationIcon sx={{ fontSize: 20, opacity: 0.9 }} />
-                      <Typography variant="body1" sx={{ opacity: 0.95, fontWeight: 500 }}>
-                        {recommendationLocation}
-                      </Typography>
-                      <Chip 
-                        label={`${currentRecommendation.reco_confidenceScore}% Confidence`}
-                        size="small"
-                        sx={{ 
-                          bgcolor: 'rgba(255,255,255,0.2)', 
-                          color: 'white',
-                          fontWeight: 600,
-                          ml: 1
-                        }}
-                      />
-                    </Box>
+                    {currentRecommendation && (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
+                        <LocationIcon sx={{ fontSize: 20, opacity: 0.9 }} />
+                        <Typography variant="body1" sx={{ opacity: 0.95, fontWeight: 500 }}>
+                          {recommendationLocation}
+                        </Typography>
+                        <Chip 
+                          label={`${currentRecommendation.reco_confidenceScore}% Confidence`}
+                          size="small"
+                          sx={{ 
+                            bgcolor: 'rgba(255,255,255,0.2)', 
+                            color: 'white',
+                            fontWeight: 600,
+                            ml: 1
+                          }}
+                        />
+                      </Box>
+                    )}
                     
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                      {seedlings.slice(0, 3).map((s, idx) => (
-                        <Chip 
-                          key={idx}
-                          icon={<EcoIcon />}
-                          label={s.seedling_commonName}
-                          sx={{ 
-                            bgcolor: 'rgba(255,255,255,0.2)',
-                            color: 'white',
-                            fontWeight: 600
-                          }}
-                        />
-                      ))}
-                      {seedlings.length > 3 && (
-                        <Chip 
-                          label={`+${seedlings.length - 3} more`}
-                          sx={{ 
-                            bgcolor: 'rgba(255,255,255,0.2)',
-                            color: 'white',
-                            fontWeight: 600
-                          }}
-                        />
-                      )}
-                    </Box>
+                    {currentRecommendation && (
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                        {seedlings.slice(0, 3).map((s, idx) => (
+                          <Chip 
+                            key={idx}
+                            icon={<EcoIcon />}
+                            label={s.seedling_commonName}
+                            sx={{ 
+                              bgcolor: 'rgba(255,255,255,0.2)',
+                              color: 'white',
+                              fontWeight: 600
+                            }}
+                          />
+                        ))}
+                        {seedlings.length > 3 && (
+                          <Chip 
+                            label={`+${seedlings.length - 3} more`}
+                            sx={{ 
+                              bgcolor: 'rgba(255,255,255,0.2)',
+                              color: 'white',
+                              fontWeight: 600
+                            }}
+                          />
+                        )}
+                      </Box>
+                    )}
                   </Box>
                 </Box>
               </Grid>
 
               <Grid item xs={12} md={4}>
                 <Stack spacing={2} sx={{ textAlign: { xs: 'left', md: 'right' } }}>
-                  <Box>
-                    <Typography variant="h2" fontWeight="800" sx={{ lineHeight: 1, mb: 0.5 }}>
-                      {currentRecommendation.reco_confidenceScore}%
-                    </Typography>
-                    <Typography variant="body1" sx={{ opacity: 0.95, fontWeight: 500 }}>
-                      Confidence Score
-                    </Typography>
-                  </Box>
-                  
-                  <Button 
-                    startIcon={<EditIcon />}
-                    variant="contained"
-                    onClick={() => navigate('/recommendations')}
-                    sx={{ 
-                      bgcolor: 'white',
-                      color: '#2e7d32',
-                      fontWeight: 600,
-                      '&:hover': {
-                        bgcolor: 'rgba(255,255,255,0.9)'
-                      }
-                    }}
-                  >
-                    Change Recommendation
-                  </Button>
-        
+                  {currentRecommendation ? (
+                    <>
+                      <Box>
+                        <Typography variant="h2" fontWeight="800" sx={{ lineHeight: 1, mb: 0.5 }}>
+                          {currentRecommendation.reco_confidenceScore}%
+                        </Typography>
+                        <Typography variant="body1" sx={{ opacity: 0.95, fontWeight: 500 }}>
+                          Confidence Score
+                        </Typography>
+                      </Box>
+                      
+                      <Button 
+                        startIcon={<EditIcon />}
+                        variant="contained"
+                        onClick={() => navigate('/recommendations')}
+                        sx={{ 
+                          bgcolor: 'white',
+                          color: '#2e7d32',
+                          fontWeight: 600,
+                          '&:hover': {
+                            bgcolor: 'rgba(255,255,255,0.9)'
+                          }
+                        }}
+                      >
+                        Change Recommendation
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Box>
+                        <Typography variant="h6" fontWeight="600" sx={{ mb: 0.5 }}>
+                          Ready to Assign
+                        </Typography>
+                        <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                          Choose a recommendation to begin
+                        </Typography>
+                      </Box>
+                      
+                      <Button 
+                        startIcon={<TreeIcon />}
+                        variant="contained"
+                        onClick={() => navigate('/recommendations')}
+                        sx={{ 
+                          bgcolor: 'white',
+                          color: '#666666',
+                          fontWeight: 600,
+                          '&:hover': {
+                            bgcolor: 'rgba(255,255,255,0.9)'
+                          }
+                        }}
+                      >
+                        Select Recommendation
+                      </Button>
+                    </>
+                  )}
                 </Stack>
               </Grid>
             </Grid>
@@ -902,7 +935,10 @@ const SeedlingAssignmentPage = () => {
                   Assign Seedlings
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                  Select planting requests to assign recommended seedlings
+                  {currentRecommendation 
+                    ? 'Select planting requests to assign recommended seedlings'
+                    : 'Please select a recommendation first to assign seedlings'
+                  }
                 </Typography>
               </Box>
               
@@ -1406,7 +1442,7 @@ const SeedlingAssignmentPage = () => {
                 handleAssignSeedling(selectedRequest);
               }}
               startIcon={<CheckCircleIcon />}
-              disabled={getRecommendedSeedlings().length === 0}
+              disabled={!currentRecommendation || getRecommendedSeedlings().length === 0}
               sx={{
                 bgcolor: '#2e7d32',
                 fontWeight: 600,
