@@ -1307,24 +1307,29 @@ const fetchLocations = useCallback(async () => {
         )}
 
         {/* ========== SENSOR DETAIL DIALOG (FIXED LOCATION DISPLAY) ========== */}
-        <Dialog 
-          open={sensorDetailOpen} 
+        <Dialog
+          open={sensorDetailOpen}
           onClose={handleCloseSensorDetail}
-          maxWidth="lg"
-          fullWidth
+          maxWidth="sm"
+          fullWidth={false}
+          PaperProps={{
+            sx: { borderRadius: 1, width: '100%', maxWidth: 600 },
+          }}
         >
           <DialogTitle>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Typography variant="h6">
+              <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <SensorsIcon sx={{ fontSize: 20 }} />
                 Sensor Details Information
               </Typography>
             </Box>
           </DialogTitle>
+
           <DialogContent dividers>
             {selectedSensor && (
-              <Box>
+              <Box sx={{ width: '100%', maxWidth: 520, mx: 'auto' }}>
                 <Grid container spacing={3}>
-                  {/* Location Info - FIXED */}
+                  {/* Location Info */}
                   <Grid item xs={12}>
                     <Card variant="outlined">
                       <CardContent>
@@ -1332,35 +1337,30 @@ const fetchLocations = useCallback(async () => {
                           <LocationIcon sx={{ fontSize: 16, verticalAlign: 'middle', mr: 0.5 }} />
                           Location Information
                         </Typography>
-                        
-                        {/* LOCATION NAME - This should now show "Cebu City, Philippines" */}
                         <Typography variant="h6" sx={{ mb: 1 }}>
                           {selectedSensor.location}
                         </Typography>
-                        
-                        {/* COORDINATES */}
+
                         {selectedSensor.locationCoordinates && (
-                          <Box sx={{ mb: 1 }}>
-                            <Typography variant="body2" color="text.secondary">
-                              <strong>Coordinates:</strong> {selectedSensor.locationCoordinates.latitude?.toFixed(6)}°, {selectedSensor.locationCoordinates.longitude?.toFixed(6)}°
-                            </Typography>
-                          </Box>
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                            <strong>Coordinates:</strong>{' '}
+                            {selectedSensor.locationCoordinates.latitude?.toFixed(6)}°,{' '}
+                            {selectedSensor.locationCoordinates.longitude?.toFixed(6)}°
+                          </Typography>
                         )}
-                        
-                        {/* SENSOR ID */}
+
                         {selectedSensor.sensor_id && (
                           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                             <strong>Sensor ID:</strong> {selectedSensor.sensor_id}
                           </Typography>
                         )}
-                        
-                        {/* STATUS */}
+
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                           <Typography variant="body2" color="text.secondary">
                             <strong>Status:</strong>
                           </Typography>
-                          <Chip 
-                            label={selectedSensor.is_active ? 'Active' : 'Inactive'} 
+                          <Chip
+                            label={selectedSensor.is_active ? 'Active' : 'Inactive'}
                             color={selectedSensor.is_active ? 'success' : 'error'}
                             size="small"
                           />
@@ -1369,50 +1369,64 @@ const fetchLocations = useCallback(async () => {
                     </Card>
                   </Grid>
 
-                  {/* Current Readings */}
-                  <Grid item xs={12} md={4}>
-                    <Card variant="outlined" sx={{ bgcolor: '#e3f2fd' }}>
-                      <CardContent>
-                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                          <ScienceIcon sx={{ fontSize: 16, verticalAlign: 'middle', mr: 0.5 }} />
-                          pH Level
-                        </Typography>
-                        <Typography variant="h4">{formatValue(selectedSensor.pH)}</Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          Optimal: {SensorDataSchema.pH.optimal.join(' - ')}
-                        </Typography>
-                      </CardContent>
-                    </Card>
-                  </Grid>
+                  {/* Current Readings - Inline Vertical */}
+                  <Grid item xs={12}>
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        gap: 2,
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      {/* pH Level */}
+                      <Card variant="outlined" sx={{ flex: 1, minWidth: 150, bgcolor: '#e3f2fd', textAlign: 'center' }}>
+                        <CardContent>
+                          <Typography variant="subtitle2" color="text.secondary">
+                            <ScienceIcon sx={{ fontSize: 16, verticalAlign: 'middle', mr: 0.5 }} />
+                            pH Level
+                          </Typography>
+                          <Typography variant="h5" sx={{ fontWeight: 600 }}>
+                            {formatValue(selectedSensor.pH)}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Optimal: {SensorDataSchema.pH.optimal.join(' - ')}
+                          </Typography>
+                        </CardContent>
+                      </Card>
 
-                  <Grid item xs={12} md={4}>
-                    <Card variant="outlined" sx={{ bgcolor: '#e8f5e9' }}>
-                      <CardContent>
-                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                          <WaterDropIcon sx={{ fontSize: 16, verticalAlign: 'middle', mr: 0.5 }} />
-                          Soil Moisture
-                        </Typography>
-                        <Typography variant="h4">{formatValue(selectedSensor.soilMoisture, '%')}</Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          Optimal: {SensorDataSchema.soilMoisture.optimal.join(' - ')}%
-                        </Typography>
-                      </CardContent>
-                    </Card>
-                  </Grid>
+                      {/* Soil Moisture */}
+                      <Card variant="outlined" sx={{ flex: 1, minWidth: 150, bgcolor: '#e8f5e9', textAlign: 'center' }}>
+                        <CardContent>
+                          <Typography variant="subtitle2" color="text.secondary">
+                            <WaterDropIcon sx={{ fontSize: 16, verticalAlign: 'middle', mr: 0.5 }} />
+                            Soil Moisture
+                          </Typography>
+                          <Typography variant="h5" sx={{ fontWeight: 600 }}>
+                            {formatValue(selectedSensor.soilMoisture, '%')}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Optimal: {SensorDataSchema.soilMoisture.optimal.join(' - ')}%
+                          </Typography>
+                        </CardContent>
+                      </Card>
 
-                  <Grid item xs={12} md={4}>
-                    <Card variant="outlined" sx={{ bgcolor: '#fff3e0' }}>
-                      <CardContent>
-                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                          <ThermostatIcon sx={{ fontSize: 16, verticalAlign: 'middle', mr: 0.5 }} />
-                          Temperature
-                        </Typography>
-                        <Typography variant="h4">{formatValue(selectedSensor.temperature, '°C')}</Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          Optimal: {SensorDataSchema.temperature.optimal.join(' - ')}°C
-                        </Typography>
-                      </CardContent>
-                    </Card>
+                      {/* Temperature */}
+                      <Card variant="outlined" sx={{ flex: 1, minWidth: 150, bgcolor: '#fff3e0', textAlign: 'center' }}>
+                        <CardContent>
+                          <Typography variant="subtitle2" color="text.secondary">
+                            <ThermostatIcon sx={{ fontSize: 16, verticalAlign: 'middle', mr: 0.5 }} />
+                            Temperature
+                          </Typography>
+                          <Typography variant="h5" sx={{ fontWeight: 600 }}>
+                            {formatValue(selectedSensor.temperature, '°C')}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Optimal: {SensorDataSchema.temperature.optimal.join(' - ')}°C
+                          </Typography>
+                        </CardContent>
+                      </Card>
+                    </Box>
                   </Grid>
 
                   {/* Status */}
@@ -1423,7 +1437,6 @@ const fetchLocations = useCallback(async () => {
                           Status & Calibration
                         </Typography>
                         <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-                          {/* Status Display */}
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                             {getStatusIcon(selectedSensor.status)}
                             <Typography
@@ -1451,36 +1464,42 @@ const fetchLocations = useCallback(async () => {
                       </CardContent>
                     </Card>
                   </Grid>
-
                 </Grid>
 
-                {/* Divider before history */}
                 <Divider sx={{ my: 3 }} />
-
-                {/* Historical Readings Section */}
                 <SensorHistoryGrid readings={selectedSensor.readings || []} />
               </Box>
             )}
           </DialogContent>
-          <DialogActions>
-            <Button onClick={handleCloseSensorDetail}>Close</Button>
-            {selectedSensor && validateSensorData({
-              pH: selectedSensor.pH,
-              soilMoisture: selectedSensor.soilMoisture,
-              temperature: selectedSensor.temperature
-            }).isValid && canGenerateML && (
-              <Button 
-                variant="contained" 
-                onClick={() => {
-                  handleCloseSensorDetail();
-                  handleGenerateML(selectedSensor);
-                }}
-                startIcon={<ScienceIcon />}
-                sx={{ bgcolor: '#2e7d32', '&:hover': { bgcolor: '#1b5e20' } }}
-              >
-                Generate ML Recommendations
-              </Button>
-            )}
+
+          {/* Dialog Actions */}
+          <DialogActions sx={{ px: 3, pb: 2 }}>
+            <Button onClick={handleCloseSensorDetail} variant="outlined" color="inherit">
+              Close
+            </Button>
+
+            {selectedSensor &&
+              validateSensorData({
+                pH: selectedSensor.pH,
+                soilMoisture: selectedSensor.soilMoisture,
+                temperature: selectedSensor.temperature,
+              }).isValid &&
+              canGenerateML && (
+                <Button
+                  variant="contained"
+                  startIcon={<ScienceIcon />}
+                  sx={{
+                    bgcolor: '#2e7d32',
+                    '&:hover': { bgcolor: '#1b5e20' },
+                  }}
+                  onClick={() => {
+                    handleCloseSensorDetail();
+                    handleGenerateML(selectedSensor);
+                  }}
+                >
+                  Generate ML Recommendations
+                </Button>
+              )}
           </DialogActions>
         </Dialog>
 
