@@ -27,6 +27,7 @@ import {
   MenuItem,
   Grid,
   Card,
+  Divider,
   CardContent,
   LinearProgress,
   Avatar,
@@ -868,136 +869,246 @@ function Recommendations() {
             </>
           )}
 
-          {/* Detail Dialog */}
-          <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 2 } }}>
-            <DialogTitle sx={{ bgcolor: 'primary.main', color: 'white' }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <AlgorithmIcon /> Recommendation Details
-              </Box>
-            </DialogTitle>
-            <DialogContent>
-              {selectedReco && (
-                <Grid container spacing={2} sx={{ mt: 1 }}>
-                  <Grid item xs={12}>
-                    <Typography variant="h6" gutterBottom>{selectedReco.reco_id}</Typography>
-                    <Chip label={selectedReco.status} color={getStatusColor(selectedReco.status)} sx={{ mb: 2 }} />
-                  </Grid>
+          {/* ========== RECOMMENDATION DETAIL DIALOG (REVISED STRUCTURE & DESIGN) ========== */}
+<Dialog
+  open={openDialog}
+  onClose={handleCloseDialog}
+  maxWidth="sm"
+  fullWidth={false}
+  PaperProps={{
+    sx: { borderRadius: 1, width: '100%', maxWidth: 650 },
+  }}
+>
+  <DialogTitle>
+    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <Typography variant="h6">
+        <AlgorithmIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+        Recommendation Details
+      </Typography>
+    </Box>
+  </DialogTitle>
+
+  <DialogContent dividers>
+    {selectedReco && (
+      <Box sx={{ width: '100%', maxWidth: 600, mx: 'auto' }}>
+        <Grid container spacing={3}>
+          {/* CARD 1: Summary + Source Data + Environmental Conditions + Confidence */}
+          <Grid item xs={12}>
+            <Card variant="outlined">
+              <CardContent>
+                {/* Summary */}
+                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                  Recommendation Summary
+                </Typography>
+                <Typography variant="h6" sx={{ mb: 1 }}>
+                  {selectedReco.reco_id}
+                </Typography>
+
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    <strong>Status:</strong>
+                  </Typography>
+                  <Chip
+                    label={selectedReco.status}
+                    color={getStatusColor(selectedReco.status)}
+                    size="small"
+                  />
+                </Box>
+
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  <strong>Generated:</strong>{' '}
+                  {selectedReco.reco_generatedAt
+                    ? new Date(selectedReco.reco_generatedAt).toLocaleString()
+                    : 'N/A'}
+                </Typography>
+
+                <Divider sx={{ my: 2 }} />
+
+                {/* Source Data + Environmental Conditions in one grid */}
+                <Grid container spacing={2}>
+                  {/* Source Data */}
                   <Grid item xs={12} md={6}>
-                    <Typography variant="subtitle2" gutterBottom>Source Data</Typography>
-                    <Typography variant="body2">
-                      Sensor: {selectedReco.sensorData ? selectedReco.sensorData.sensorId : 'N/A'}
+                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                      Source Data
                     </Typography>
-                    <Typography variant="body2">
-                      Location: {selectedReco.locationData?.location_name || 'N/A'}
+                    <Typography variant="body2" sx={{ mb: 0.5 }}>
+                      <strong>Sensor:</strong>{' '}
+                      {selectedReco.sensorData ? selectedReco.sensorData.sensorId : 'N/A'}
                     </Typography>
-                    <Typography variant="body2">
-                      Generated: {selectedReco.reco_generatedAt 
-                        ? new Date(selectedReco.reco_generatedAt).toLocaleString() 
-                        : 'N/A'}
+                    <Typography variant="body2" sx={{ mb: 0.5 }}>
+                      <strong>Location:</strong>{' '}
+                      {selectedReco.locationData?.location_name || 'N/A'}
                     </Typography>
+                    {selectedReco.locationData && (
+                      <Typography variant="body2" color="text.secondary">
+                        <strong>Coordinates:</strong>{' '}
+                        {selectedReco.locationData.location_latitude},{' '}
+                        {selectedReco.locationData.location_longitude}
+                      </Typography>
+                    )}
                   </Grid>
+
+                  {/* Environmental Conditions */}
                   <Grid item xs={12} md={6}>
-                    <Typography variant="subtitle2" gutterBottom>Environmental Conditions</Typography>
+                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                      Environmental Conditions
+                    </Typography>
+
                     {selectedReco.sensorData ? (
                       <>
-                        <Typography variant="body2">Soil Moisture: {selectedReco.sensorData.soilMoisture}%</Typography>
-                        <Typography variant="body2">Temperature: {selectedReco.sensorData.temperature}°C</Typography>
-                        <Typography variant="body2">pH Level: {selectedReco.sensorData.pH}</Typography>
-                      </>
-                    ) : (
-                      <Typography variant="body2" color="text.secondary">No sensor data available</Typography>
-                    )}
-                    {selectedReco.locationData && (
-                      <>
-                        <Typography variant="body2" sx={{ mt: 1 }}>
-                          Coordinates: {selectedReco.locationData.location_latitude}, {selectedReco.locationData.location_longitude}
+                        <Typography variant="body2">
+                          Soil Moisture: {selectedReco.sensorData.soilMoisture}%
+                        </Typography>
+                        <Typography variant="body2">
+                          Temperature: {selectedReco.sensorData.temperature}°C
+                        </Typography>
+                        <Typography variant="body2">
+                          pH Level: {selectedReco.sensorData.pH}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          Recorded:{' '}
+                          {selectedReco.sensorData.timestamp
+                            ? new Date(selectedReco.sensorData.timestamp).toLocaleString()
+                            : 'N/A'}
                         </Typography>
                       </>
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">
+                        No sensor data available
+                      </Typography>
                     )}
                   </Grid>
-                  <Grid item xs={12}>
-                    <Typography variant="subtitle2" gutterBottom>Recommended Seedlings ({selectedReco.recommendedSeedlings.length})</Typography>
-                    <Grid container spacing={2}>
-                      {selectedReco.recommendedSeedlings.map((seedling, idx) => (
-                        <Grid item xs={12} sm={6} md={4} key={seedling.seedling_id}>
-                          <Card variant="outlined" sx={{ p: 2, height: '100%' }}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                              <Avatar sx={{ bgcolor: 'primary.main', mr: 1, width: 32, height: 32 }}>
-                                {idx + 1}
-                              </Avatar>
-                              <Chip 
-                                size="small" 
-                                label={seedling.isNative ? 'Native' : 'Non-native'} 
-                                color={seedling.isNative ? 'success' : 'default'}
-                                variant="outlined"
-                              />
-                            </Box>
-                            <Typography variant="body2" fontWeight="medium" gutterBottom>
-                              {seedling.commonName}
-                            </Typography>
-                            <Typography variant="caption" color="textSecondary" gutterBottom sx={{ display: 'block' }}>
-                              {seedling.scientificName}
-                            </Typography>
-                            <Box sx={{ mt: 1 }}>
-                              <Typography variant="caption" display="block">
-                                Moisture: {seedling.prefMoisture}%
-                              </Typography>
-                              <Typography variant="caption" display="block">
-                                Temp: {seedling.prefTemp}°C
-                              </Typography>
-                              <Typography variant="caption" display="block">
-                                pH: {seedling.prefpH}
-                              </Typography>
-                            </Box>
-                            <Box sx={{ mt: 1 }}>
-                              <LinearProgress
-                                variant="determinate"
-                                value={seedling.confidenceScore * 100}
-                                color={getConfidenceColor(seedling.confidenceScore * 100)}
-                                sx={{ height: 6, borderRadius: 3 }}
-                              />
-                              <Typography variant="caption" sx={{ mt: 0.5, display: 'block', textAlign: 'center' }}>
-                                {Math.round(seedling.confidenceScore * 100)}% confidence
-                              </Typography>
-                            </Box>
-                          </Card>
-                        </Grid>
-                      ))}
-                    </Grid>
-                  </Grid>
-                  <Grid item xs={12}>
-                    <Typography variant="subtitle2" gutterBottom>Overall Algorithm Confidence</Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                      <Box sx={{ width: '100%' }}>
-                        <LinearProgress
-                          variant="determinate"
-                          value={selectedReco.reco_confidenceScore}
-                          color={getConfidenceColor(selectedReco.reco_confidenceScore)}
-                          sx={{ height: 10, borderRadius: 4 }}
-                        />
-                      </Box>
-                      <Typography variant="h6">{selectedReco.reco_confidenceScore}%</Typography>
-                    </Box>
-                  </Grid>
                 </Grid>
-              )}
-            </DialogContent>
-            <DialogActions sx={{ p: 2 }}>
-              <Button onClick={handleCloseDialog}>Close</Button>
-              <Button 
-                variant="contained" 
-                onClick={() => {
-                  handleImplementRecommendation(selectedReco);
-                  handleCloseDialog();
-                }} 
-                disabled={saving}
-                sx={{ bgcolor: '#2e7d32' }}
-                startIcon={saving ? <CircularProgress size={20} color="inherit" /> : <ExecuteIcon />}
+
+                <Divider sx={{ my: 2 }} />
+
+                {/* Overall Algorithm Confidence */}
+                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                  Overall Algorithm Confidence
+                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <Box sx={{ width: '100%' }}>
+                    <LinearProgress
+                      variant="determinate"
+                      value={selectedReco.reco_confidenceScore}
+                      color={getConfidenceColor(selectedReco.reco_confidenceScore)}
+                      sx={{ height: 10, borderRadius: 4 }}
+                    />
+                  </Box>
+                  <Typography variant="h6">
+                    {selectedReco.reco_confidenceScore}%
+                  </Typography>
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+          {/* CARD 2: Recommended Seedlings (Inline Vertical) */}
+<Grid item xs={12}>
+  <Card variant="outlined">
+    <CardContent>
+      <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+        Recommended Seedlings ({selectedReco.recommendedSeedlings.length})
+      </Typography>
+
+      <Box
+        sx={{
+          display: 'flex',
+          gap: 0.5,
+          overflowX: 'auto', // horizontal scroll if too many
+          pb: 1,
+        }}
+      >
+        {selectedReco.recommendedSeedlings.map((seedling, idx) => (
+          <Card
+            key={seedling.seedling_id}
+            variant="outlined"
+            sx={{
+              minWidth: 180,
+              bgcolor: '#f9fbe7',
+              textAlign: 'center',
+              flexShrink: 0, // prevents shrinking in horizontal scroll
+            }}
+          >
+            <CardContent>
+              <Box
+                sx={{
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  mb: 1,
+                  gap: 1,
+                }}
               >
-                {saving ? "Implementing..." : "Implement"}
-              </Button>
-            </DialogActions>
-          </Dialog>
+                <Avatar sx={{ bgcolor: 'primary.main', width: 28, height: 28, fontSize: 14 }}>
+                  {idx + 1}
+                </Avatar>
+                <Chip
+                  size="small"
+                  label={seedling.isNative ? 'Native' : 'Non-native'}
+                  color={seedling.isNative ? 'success' : 'default'}
+                  variant="outlined"
+                />
+              </Box>
+
+              <Typography variant="body2" fontWeight="medium">
+                {seedling.commonName}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                {seedling.scientificName}
+              </Typography>
+
+              <Typography variant="caption" display="block">
+                Moisture: {seedling.prefMoisture}%
+              </Typography>
+              <Typography variant="caption" display="block">
+                Temp: {seedling.prefTemp}°C
+              </Typography>
+              <Typography variant="caption" display="block">
+                pH: {seedling.prefpH}
+              </Typography>
+
+              <Box sx={{ mt: 1 }}>
+                <LinearProgress
+                  variant="determinate"
+                  value={seedling.confidenceScore * 100}
+                  color={getConfidenceColor(seedling.confidenceScore * 100)}
+                  sx={{ height: 6, borderRadius: 3 }}
+                />
+                <Typography variant="caption" sx={{ mt: 0.5, display: 'block', textAlign: 'center' }}>
+                  {Math.round(seedling.confidenceScore * 100)}% confidence
+                </Typography>
+              </Box>
+            </CardContent>
+          </Card>
+        ))}
+      </Box>
+    </CardContent>
+  </Card>
+</Grid>
+
+          
+        </Grid>
+      </Box>
+    )}
+  </DialogContent>
+
+  <DialogActions sx={{ p: 2 }}>
+    <Button onClick={handleCloseDialog}>Close</Button>
+    <Button
+      variant="contained"
+      onClick={() => {
+        handleImplementRecommendation(selectedReco);
+        handleCloseDialog();
+      }}
+      disabled={saving}
+      sx={{ bgcolor: '#2e7d32' }}
+      startIcon={saving ? <CircularProgress size={20} color="inherit" /> : <ExecuteIcon />}
+    >
+      {saving ? 'Implementing...' : 'Implement'}
+    </Button>
+  </DialogActions>
+</Dialog>
+
 
           {/* Delete Confirmation Dialog */}
           <Dialog open={deleteDialogOpen} onClose={cancelDelete} maxWidth="sm" fullWidth>
