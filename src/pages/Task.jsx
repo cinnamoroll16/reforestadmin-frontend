@@ -5,7 +5,7 @@ import {
   DialogContent, DialogActions, Grid, Alert, 
   useMediaQuery, useTheme, TextField,
   LinearProgress, Toolbar, Chip, Card, CardContent, Stack, 
-  Switch, FormControlLabel, IconButton, Container, alpha,
+  IconButton, Container, alpha,
   Avatar
 } from '@mui/material';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -19,7 +19,6 @@ import {
   Assignment as TaskIcon,
   Search as SearchIcon,
   Close as CloseIcon,
-  ArrowBack as BackIcon,
   Warning as WarningIcon,
   Info as InfoIcon,
   Edit as EditIcon
@@ -43,7 +42,6 @@ const SeedlingAssignmentPage = () => {
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [showOnlyUnassigned, setShowOnlyUnassigned] = useState(true);
   const [alert, setAlert] = useState({ open: false, message: '', severity: 'info' });
   const [recommendationLocation, setRecommendationLocation] = useState('Loading location...');
 
@@ -332,18 +330,15 @@ const SeedlingAssignmentPage = () => {
     return seedlings;
   };
 
-  // Filter requests based on search and assignment status
+  // Filter requests based on search
   const filteredRequests = plantingRequests.filter(request => {
     const matchesSearch =
       (request.id?.toLowerCase() || "").includes(filter.toLowerCase()) ||
       (request.planterName?.toLowerCase() || "").includes(filter.toLowerCase()) ||
       (request.locationName?.toLowerCase() || "").includes(filter.toLowerCase()) ||
       (request.request_notes?.toLowerCase() || "").includes(filter.toLowerCase());
-
-    const hasAssignment = isRequestAssigned(request.id);
-    const matchesAssignmentFilter = !showOnlyUnassigned || !hasAssignment;
     
-    return matchesSearch && matchesAssignmentFilter;
+    return matchesSearch;
   });
 
   // Calculate statistics
@@ -941,25 +936,9 @@ const SeedlingAssignmentPage = () => {
                   }
                 </Typography>
               </Box>
-              
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <Chip 
-                  icon={<TaskIcon />} 
-                  label={`${stats.unassigned} Unassigned`} 
-                  color="warning" 
-                  variant="outlined"
-                />
-                {stats.urgent > 0 && (
-                  <Chip 
-                    icon={<WarningIcon />} 
-                    label={`${stats.urgent} Urgent`} 
-                    color="error"
-                  />
-                )}
-              </Box>
             </Box>
               
-            {/* Search and Filters */}
+            {/* Search and Filters with Notification Chips */}
             <Paper elevation={0} sx={{ mb: 3, p: 3, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
               <Grid container spacing={2} alignItems="center">
                 <Grid item xs={12} md={6}>
@@ -976,22 +955,25 @@ const SeedlingAssignmentPage = () => {
                     }}
                   />
                 </Grid>
-                <Grid item xs={12} md={4}>
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={showOnlyUnassigned}
-                        onChange={(e) => setShowOnlyUnassigned(e.target.checked)}
-                        color="primary"
+                <Grid item xs={12} md={6}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, justifyContent: 'flex-end' }}>
+                    <Chip 
+                      icon={<TaskIcon />} 
+                      label={`${stats.unassigned} Unassigned`} 
+                      color="warning" 
+                      variant="outlined"
+                    />
+                    {stats.urgent > 0 && (
+                      <Chip 
+                        icon={<WarningIcon />} 
+                        label={`${stats.urgent} Urgent`} 
+                        color="error"
                       />
-                    }
-                    label="Show only unassigned"
-                  />
-                </Grid>
-                <Grid item xs={12} md={2}>
-                  <Typography variant="body2" color="text.secondary">
-                    {filteredRequests.length} result{filteredRequests.length !== 1 ? 's' : ''}
-                  </Typography>
+                    )}
+                    <Typography variant="body2" color="text.secondary">
+                      {filteredRequests.length} result{filteredRequests.length !== 1 ? 's' : ''}
+                    </Typography>
+                  </Box>
                 </Grid>
               </Grid>
             </Paper>
@@ -1005,10 +987,7 @@ const SeedlingAssignmentPage = () => {
                     No planting requests found
                   </Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                    {showOnlyUnassigned 
-                      ? 'All pending requests have been assigned' 
-                      : 'No pending planting requests available'
-                    }
+                    {filter ? 'No requests match your search criteria' : 'No pending planting requests available'}
                   </Typography>
                 </Paper>
               ) : (
@@ -1061,7 +1040,7 @@ const SeedlingAssignmentPage = () => {
             {selectedRequest && (
               <Box>
                 {/* Request Details */}
-                <Paper elevation={0} sx={{ mb: 3, p: 3, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
+                <Paper elevation={0} sx={{ mb: 3, p: 3, borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
                   <Typography variant="h6" fontWeight="700" gutterBottom sx={{ mb: 2 }}>
                     Request Details
                   </Typography>
