@@ -1,4 +1,4 @@
-// src/pages/Sensors.js - UPDATED WITH FIXED LOCATION DISPLAY
+// src/pages/Sensors.js - UPDATED WITH FIXED DATASET UPLOAD
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { apiService } from '../services/api';
 import {
@@ -171,27 +171,57 @@ const backendMLService = {
     }
   },
 
-  // Upload dataset to backend
+  // FIXED: Upload dataset to backend with better error handling
   async uploadDataset(file) {
     try {
+      console.log('📤 Uploading dataset file:', file.name, file.size, file.type);
+      
       const formData = new FormData();
       formData.append('dataset', file);
+
+      // Add any additional required fields
+      formData.append('uploadedBy', 'admin');
+      formData.append('timestamp', new Date().toISOString());
 
       const response = await fetch(`${BACKEND_CONFIG.BASE_URL}${BACKEND_CONFIG.ENDPOINTS.ML_UPLOAD_DATASET}`, {
         method: 'POST',
         body: formData,
+        // Don't set Content-Type for FormData - let browser set it
       });
 
+      console.log('📨 Upload response status:', response.status);
+      
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `Upload failed with status: ${response.status}`);
+        const errorText = await response.text();
+        console.error('❌ Server response error:', errorText);
+        
+        let errorMessage = `Upload failed: ${response.status} ${response.statusText}`;
+        
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.error || errorData.message || errorMessage;
+        } catch (e) {
+          // If response isn't JSON, use the text as is
+        }
+        
+        throw new Error(errorMessage);
       }
 
       const result = await response.json();
+      console.log('✅ Upload successful:', result);
       return result;
+
     } catch (error) {
       console.error('❌ Dataset upload error:', error);
-      throw error;
+      
+      // More specific error messages
+      if (error.message.includes('Failed to fetch')) {
+        throw new Error('Network error: Cannot connect to server. Please ensure backend is running.');
+      } else if (error.message.includes('500')) {
+        throw new Error('Server error: Backend encountered an internal error. Please try again later.');
+      } else {
+        throw error;
+      }
     }
   },
 
@@ -387,7 +417,7 @@ const SensorHistoryGrid = ({ readings }) => {
 };
 
 // ============================================================================
-// DATASET UPLOAD COMPONENT
+// DATASET UPLOAD COMPONENT - FIXED VERSION
 // ============================================================================
 const DatasetUpload = ({ onUploadComplete }) => {
   const [uploading, setUploading] = useState(false);
@@ -399,8 +429,21 @@ const DatasetUpload = ({ onUploadComplete }) => {
     if (!file) return;
 
     // Validate file type
-    if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
-      setUploadError('Please select an Excel file (.xlsx or .xls)');
+    const validTypes = [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+      'application/vnd.ms-excel', // .xls
+      'text/csv', // .csv
+      'application/vnd.ms-excel.sheet.macroEnabled.12' // .xlsm
+    ];
+    
+    if (!validTypes.includes(file.type) && !file.name.match(/\.(xlsx|xls|csv)$/i)) {
+      setUploadError('Please select an Excel file (.xlsx, .xls) or CSV file (.csv)');
+      return;
+    }
+
+    // File size validation (e.g., 10MB limit)
+    if (file.size > 10 * 1024 * 1024) {
+      setUploadError('File size must be less than 10MB');
       return;
     }
 
@@ -409,13 +452,17 @@ const DatasetUpload = ({ onUploadComplete }) => {
     setUploadResult(null);
 
     try {
+      console.log('📤 Starting dataset upload...');
       const result = await backendMLService.uploadDataset(file);
       setUploadResult(result);
       if (onUploadComplete) onUploadComplete(result);
     } catch (error) {
+      console.error('❌ Upload failed:', error);
       setUploadError(error.message);
     } finally {
       setUploading(false);
+      // Reset file input
+      event.target.value = '';
     }
   };
 
@@ -428,7 +475,7 @@ const DatasetUpload = ({ onUploadComplete }) => {
           </Typography>
           
           <input
-            accept=".xlsx,.xls"
+            accept=".xlsx,.xls,.csv"
             style={{ display: 'none' }}
             id="dataset-upload"
             type="file"
@@ -461,6 +508,15 @@ const DatasetUpload = ({ onUploadComplete }) => {
             <Alert severity="error" sx={{ mt: 1 }}>
               {uploadError}
             </Alert>
+          )}
+
+          {uploading && (
+            <Box sx={{ mt: 1 }}>
+              <LinearProgress />
+              <Typography variant="caption" color="text.secondary">
+                Uploading dataset... Please wait.
+              </Typography>
+            </Box>
           )}
         </CardContent>
       </Card>
@@ -549,56 +605,56 @@ function Sensors() {
   }, [showNotification]);
 
   // ============================================================================
-// FETCH LOCATIONS FROM BACKEND - DEBUG VERSION
-// ============================================================================
-const fetchLocations = useCallback(async () => {
-  try {
-    console.log('📍 Fetching locations from backend...');
-    const locationsData = await apiService.getLocations();
-    
-    console.log('📍 Raw locations data from API:', locationsData);
-    
-    const locationsMap = {};
-    if (Array.isArray(locationsData)) {
-      locationsData.forEach((location) => {
-        if (location && location.id) {
-          const locationData = {
-            id: location.id,
-            location_name: location.location_name || 'Unknown Location',
-            location_latitude: location.location_latitude,
-            location_longitude: location.location_longitude,
-            sensor_id: location.sensor_id,
-            created_by: location.created_by,
-            is_active: location.is_active,
-            last_updated: location.last_updated
-          };
-          
-          // CRITICAL FIX: Only store under the actual location ID
-          // Don't create multiple artificial keys that don't exist in your data
-          locationsMap[location.id] = locationData;
-          
-          // Also store under sensor_id if it exists and is different
-          if (location.sensor_id && location.sensor_id !== location.id) {
-            locationsMap[location.sensor_id] = locationData;
+  // FETCH LOCATIONS FROM BACKEND - DEBUG VERSION
+  // ============================================================================
+  const fetchLocations = useCallback(async () => {
+    try {
+      console.log('📍 Fetching locations from backend...');
+      const locationsData = await apiService.getLocations();
+      
+      console.log('📍 Raw locations data from API:', locationsData);
+      
+      const locationsMap = {};
+      if (Array.isArray(locationsData)) {
+        locationsData.forEach((location) => {
+          if (location && location.id) {
+            const locationData = {
+              id: location.id,
+              location_name: location.location_name || 'Unknown Location',
+              location_latitude: location.location_latitude,
+              location_longitude: location.location_longitude,
+              sensor_id: location.sensor_id,
+              created_by: location.created_by,
+              is_active: location.is_active,
+              last_updated: location.last_updated
+            };
+            
+            // CRITICAL FIX: Only store under the actual location ID
+            // Don't create multiple artificial keys that don't exist in your data
+            locationsMap[location.id] = locationData;
+            
+            // Also store under sensor_id if it exists and is different
+            if (location.sensor_id && location.sensor_id !== location.id) {
+              locationsMap[location.sensor_id] = locationData;
+            }
+            
+            console.log(`📍 Mapped location: "${location.location_name}"`);
+            console.log(`   - Location ID: ${location.id}`);
+            console.log(`   - Sensor ID: ${location.sensor_id}`);
           }
-          
-          console.log(`📍 Mapped location: "${location.location_name}"`);
-          console.log(`   - Location ID: ${location.id}`);
-          console.log(`   - Sensor ID: ${location.sensor_id}`);
-        }
-      });
+        });
+      }
+      
+      console.log(`✅ Loaded ${Object.keys(locationsMap).length} location mappings`);
+      console.log('📍 Final location keys:', Object.keys(locationsMap));
+      
+      return locationsMap;
+    } catch (error) {
+      console.error('❌ Error fetching locations:', error);
+      showNotification('Failed to load location data', 'warning');
+      return {};
     }
-    
-    console.log(`✅ Loaded ${Object.keys(locationsMap).length} location mappings`);
-    console.log('📍 Final location keys:', Object.keys(locationsMap));
-    
-    return locationsMap;
-  } catch (error) {
-    console.error('❌ Error fetching locations:', error);
-    showNotification('Failed to load location data', 'warning');
-    return {};
-  }
-}, [showNotification]);
+  }, [showNotification]);
 
   // ============================================================================
   // FETCH SENSORS FROM BACKEND - FIXED LOCATION HANDLING
@@ -672,122 +728,123 @@ const fetchLocations = useCallback(async () => {
   // INITIALIZE DATA - FIXED LOCATION PROCESSING
   // ============================================================================
   useEffect(() => {
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const [sensorsData, locationsData] = await Promise.all([
-        fetchSensorsFromBackend(),
-        fetchLocations()
-      ]);
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const [sensorsData, locationsData] = await Promise.all([
+          fetchSensorsFromBackend(),
+          fetchLocations()
+        ]);
 
-      console.log('🔄 DEBUG: Processing sensors with locations...');
-      console.log('📍 Available location IDs in map:', Object.keys(locationsData));
-      console.log('📡 Raw sensors from backend:', sensorsData);
+        console.log('🔄 DEBUG: Processing sensors with locations...');
+        console.log('📍 Available location IDs in map:', Object.keys(locationsData));
+        console.log('📡 Raw sensors from backend:', sensorsData);
 
-      // Process sensors with location information - DEBUG VERSION
-      const processedSensors = sensorsData.map(sensor => {
-        console.log(`\n🔍 DEBUG Processing sensor: ${sensor.id}`);
-        console.log('   - sensor.location_id:', sensor.location_id);
-        console.log('   - sensor.sensor_location:', sensor.sensor_location);
-        console.log('   - sensor.coordinates:', sensor.coordinates);
+        // Process sensors with location information - DEBUG VERSION
+        const processedSensors = sensorsData.map(sensor => {
+          console.log(`\n🔍 DEBUG Processing sensor: ${sensor.id}`);
+          console.log('   - sensor.location_id:', sensor.location_id);
+          console.log('   - sensor.sensor_location:', sensor.sensor_location);
+          console.log('   - sensor.coordinates:', sensor.coordinates);
 
-        let locationInfo = null;
-        let locationId = null;
+          let locationInfo = null;
+          let locationId = null;
 
-        // STRATEGY 1: Try direct location_id match
-        if (sensor.location_id && locationsData[sensor.location_id]) {
-          locationInfo = locationsData[sensor.location_id];
-          locationId = sensor.location_id;
-          console.log(`   ✅ Found location via direct location_id: ${sensor.location_id}`);
-        }
-        // STRATEGY 2: Try to extract location ID from path
-        else if (sensor.location_id && sensor.location_id.includes('/')) {
-          const extractedId = sensor.location_id.split('/').pop();
-          if (locationsData[extractedId]) {
-            locationInfo = locationsData[extractedId];
-            locationId = extractedId;
-            console.log(`   ✅ Found location via extracted ID: ${extractedId}`);
+          // STRATEGY 1: Try direct location_id match
+          if (sensor.location_id && locationsData[sensor.location_id]) {
+            locationInfo = locationsData[sensor.location_id];
+            locationId = sensor.location_id;
+            console.log(`   ✅ Found location via direct location_id: ${sensor.location_id}`);
           }
-        }
-        // STRATEGY 3: Try sensor ID as location key
-        else if (locationsData[sensor.id]) {
-          locationInfo = locationsData[sensor.id];
-          locationId = sensor.id;
-          console.log(`   ✅ Found location via sensor ID: ${sensor.id}`);
-        }
-        // STRATEGY 4: Try to find location by sensor_id reference
-        else {
-          // Look for any location that references this sensor
-          const matchingLocation = Object.values(locationsData).find(
-            loc => loc.sensor_id === sensor.id
-          );
-          if (matchingLocation) {
-            locationInfo = matchingLocation;
-            locationId = matchingLocation.id;
-            console.log(`   ✅ Found location via sensor_id reference: ${matchingLocation.id}`);
+          // STRATEGY 2: Try to extract location ID from path
+          else if (sensor.location_id && sensor.location_id.includes('/')) {
+            const extractedId = sensor.location_id.split('/').pop();
+            if (locationsData[extractedId]) {
+              locationInfo = locationsData[extractedId];
+              locationId = extractedId;
+              console.log(`   ✅ Found location via extracted ID: ${extractedId}`);
+            }
           }
-        }
+          // STRATEGY 3: Try sensor ID as location key
+          else if (locationsData[sensor.id]) {
+            locationInfo = locationsData[sensor.id];
+            locationId = sensor.id;
+            console.log(`   ✅ Found location via sensor ID: ${sensor.id}`);
+          }
+          // STRATEGY 4: Try to find location by sensor_id reference
+          else {
+            // Look for any location that references this sensor
+            const matchingLocation = Object.values(locationsData).find(
+              loc => loc.sensor_id === sensor.id
+            );
+            if (matchingLocation) {
+              locationInfo = matchingLocation;
+              locationId = matchingLocation.id;
+              console.log(`   ✅ Found location via sensor_id reference: ${matchingLocation.id}`);
+            }
+          }
 
-        // Get location details
-        let locationName = 'Unknown Location';
-        let locationCoordinates = null;
-        let sensorId = null;
-        let isActive = true;
+          // Get location details
+          let locationName = 'Unknown Location';
+          let locationCoordinates = null;
+          let sensorId = null;
+          let isActive = true;
 
-        if (locationInfo) {
-          locationName = locationInfo.location_name || 'Unknown Location';
-          locationCoordinates = {
-            latitude: locationInfo.location_latitude || sensor.latitude,
-            longitude: locationInfo.location_longitude || sensor.longitude
+          if (locationInfo) {
+            locationName = locationInfo.location_name || 'Unknown Location';
+            locationCoordinates = {
+              latitude: locationInfo.location_latitude || sensor.latitude,
+              longitude: locationInfo.location_longitude || sensor.longitude
+            };
+            sensorId = locationInfo.sensor_id;
+            isActive = locationInfo.is_active !== false;
+            console.log(`   🎯 Final location: "${locationName}"`);
+          } else {
+            locationName = sensor.sensor_location || `Location ${sensor.id}`;
+            locationCoordinates = sensor.coordinates || {
+              latitude: sensor.latitude,
+              longitude: sensor.longitude
+            };
+            console.log(`   ⚠️ No location found, using fallback: "${locationName}"`);
+            console.log('   🔍 Available locations were:', Object.keys(locationsData));
+          }
+
+          return {
+            ...sensor,
+            location: locationName,
+            locationCoordinates: locationCoordinates,
+            sensor_id: sensorId || sensor.id,
+            is_active: isActive,
+            locationRef: sensor.location_id,
+            location_id: locationId,
+            status: sensor.sensor_status || "Unknown",
+            statusDescription: `Sensor is currently ${sensor.sensor_status || 'Unknown'}`,
+            lastCalibration: sensor.sensor_lastCalibrationDate || null,
           };
-          sensorId = locationInfo.sensor_id;
-          isActive = locationInfo.is_active !== false;
-          console.log(`   🎯 Final location: "${locationName}"`);
-        } else {
-          locationName = sensor.sensor_location || `Location ${sensor.id}`;
-          locationCoordinates = sensor.coordinates || {
-            latitude: sensor.latitude,
-            longitude: sensor.longitude
-          };
-          console.log(`   ⚠️ No location found, using fallback: "${locationName}"`);
-          console.log('   🔍 Available locations were:', Object.keys(locationsData));
-        }
+        });
 
-        return {
-          ...sensor,
-          location: locationName,
-          locationCoordinates: locationCoordinates,
-          sensor_id: sensorId || sensor.id,
-          is_active: isActive,
-          locationRef: sensor.location_id,
-          location_id: locationId,
-          status: sensor.sensor_status || "Unknown",
-          statusDescription: `Sensor is currently ${sensor.sensor_status || 'Unknown'}`,
-          lastCalibration: sensor.sensor_lastCalibrationDate || null,
-        };
-      });
+        setSensors(processedSensors);
+        setLocations(locationsData);
+        
+        // Final debug summary
+        console.log('\n📊 FINAL DEBUG SUMMARY:');
+        console.log(`   - Processed ${processedSensors.length} sensors`);
+        processedSensors.forEach(sensor => {
+          console.log(`   - Sensor ${sensor.id} → Location: "${sensor.location}"`);
+        });
 
-      setSensors(processedSensors);
-      setLocations(locationsData);
-      
-      // Final debug summary
-      console.log('\n📊 FINAL DEBUG SUMMARY:');
-      console.log(`   - Processed ${processedSensors.length} sensors`);
-      processedSensors.forEach(sensor => {
-        console.log(`   - Sensor ${sensor.id} → Location: "${sensor.location}"`);
-      });
+      } catch (error) {
+        console.error("Error fetching data:", error);
+        setError('Failed to fetch sensor data: ' + error.message);
+        showNotification('Error loading sensors: ' + error.message, 'error');
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    } catch (error) {
-      console.error("Error fetching data:", error);
-      setError('Failed to fetch sensor data: ' + error.message);
-      showNotification('Error loading sensors: ' + error.message, 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
+    fetchData();
+  }, [fetchSensorsFromBackend, fetchLocations, showNotification]);
 
-  fetchData();
-}, [fetchSensorsFromBackend, fetchLocations, showNotification]);
   // ============================================================================
   // REFRESH HANDLER - FIXED LOCATION PROCESSING
   // ============================================================================
