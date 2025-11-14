@@ -119,10 +119,10 @@ const SeedlingAssignmentPage = () => {
     }
   };
 
-  // Fetch user data using API service - robust version
-  const fetchUserData = async (userRef) => {
+  // Fetch user email only (fullName is already in the request)
+  const fetchUserEmail = async (userRef) => {
     try {
-      if (!userRef) return { email: 'N/A', fullName: 'Unknown User' };
+      if (!userRef) return 'N/A';
       
       let userId;
       
@@ -136,42 +136,10 @@ const SeedlingAssignmentPage = () => {
       }
       
       const userData = await apiService.getUser(userId);
-      
-      // Construct full name from firstName, middleName, and lastName
-      const fullName = `${userData.firstName || ''} ${userData.middleName || ''} ${userData.lastName || ''}`.trim().replace(/\s+/g, ' ') || 'Unknown User';
-      
-      return {
-        email: userData.email || 'N/A',
-        fullName: fullName
-      };
+      return userData.email || 'N/A';
     } catch (error) {
-      console.error('Error fetching user data:', error);
-      return { email: 'N/A', fullName: 'Unknown User' };
-    }
-  };
-
-  // Fetch location data using API service - robust version
-  const fetchLocationData = async (locationRef) => {
-    try {
-      if (!locationRef) return { name: 'Unknown Location' };
-      
-      let locationName;
-      
-      // Handle different reference formats
-      if (locationRef.includes('/')) {
-        locationName = locationRef.split('/').pop();
-      } else if (locationRef.startsWith('locations/')) {
-        locationName = locationRef.replace('locations/', '');
-      } else {
-        locationName = locationRef;
-      }
-      
-      return {
-        name: locationName || 'Unknown Location'
-      };
-    } catch (error) {
-      console.error('Error fetching location data:', error);
-      return { name: 'Unknown Location' };
+      console.error('Error fetching user email:', error);
+      return 'N/A';
     }
   };
 
@@ -272,7 +240,7 @@ const SeedlingAssignmentPage = () => {
         const requestsData = await apiService.getPlantingRequests();
         console.log(`📋 Found ${requestsData.length} planting requests`);
         
-        // Filter for approved/pending requests and enrich with user and location data
+        // Filter for approved/pending requests and enrich with user email
         const approvedRequests = requestsData.filter(request => 
           request.request_status === 'approved' || request.request_status === 'pending'
         );
@@ -281,15 +249,15 @@ const SeedlingAssignmentPage = () => {
 
         const enrichedRequests = await Promise.all(
           approvedRequests.map(async (request) => {
-            const userData = await fetchUserData(request.userRef);
-            const locationData = await fetchLocationData(request.locationRef);
+            // Fetch only email from user, fullName and location_address are already in request
+            const userEmail = await fetchUserEmail(request.userRef);
             
             return {
               id: request.id,
               ...request,
-              planterName: userData.fullName,
-              planterEmail: userData.email,
-              locationName: locationData.name,
+              fullName: request.fullName || 'Unknown User',
+              planterEmail: userEmail,
+              location_address: request.location_address || request.location || 'Unknown Location',
               status: request.request_status,
               request_date: request.request_date,
               preferred_date: request.preferred_date,
@@ -334,8 +302,8 @@ const SeedlingAssignmentPage = () => {
   const filteredRequests = plantingRequests.filter(request => {
     const matchesSearch =
       (request.id?.toLowerCase() || "").includes(filter.toLowerCase()) ||
-      (request.planterName?.toLowerCase() || "").includes(filter.toLowerCase()) ||
-      (request.locationName?.toLowerCase() || "").includes(filter.toLowerCase()) ||
+      (request.fullName?.toLowerCase() || "").includes(filter.toLowerCase()) ||
+      (request.location_address?.toLowerCase() || "").includes(filter.toLowerCase()) ||
       (request.request_notes?.toLowerCase() || "").includes(filter.toLowerCase());
     
     return matchesSearch;
@@ -367,10 +335,10 @@ const SeedlingAssignmentPage = () => {
       
       const notificationData = {
         notification_type: 'pending',
-        notif_message: `Your seedling has been assigned for planting at ${request.locationName}`,
+        notif_message: `Your seedling has been assigned for planting at ${request.location_address}`,
         data: {
           requestId: request.id,
-          locationName: request.locationName,
+          location_address: request.location_address,
           recommendationId: currentRecommendation?.id,
           seedlingName: seedlingDetails.seedling_commonName
         },
@@ -434,9 +402,9 @@ const SeedlingAssignmentPage = () => {
       let locationId, userId;
       
       // Extract location_id from locationRef
-      if (selectedRequest.locationRef.includes('/')) {
+      if (selectedRequest.locationRef && selectedRequest.locationRef.includes('/')) {
         locationId = selectedRequest.locationRef.split('/').pop();
-      } else if (selectedRequest.locationRef.startsWith('locations/')) {
+      } else if (selectedRequest.locationRef && selectedRequest.locationRef.startsWith('locations/')) {
         locationId = selectedRequest.locationRef.replace('locations/', '');
       } else {
         locationId = selectedRequest.locationRef;
@@ -499,7 +467,7 @@ const SeedlingAssignmentPage = () => {
       setSelectedRequest(null);
       setAlert({ 
         open: true, 
-        message: `${assignedSeedling.seedling_commonName} assigned to ${selectedRequest.planterName} successfully!`, 
+        message: `${assignedSeedling.seedling_commonName} assigned to ${selectedRequest.fullName} successfully!`, 
         severity: 'success' 
       });
     } catch (err) {
@@ -623,7 +591,7 @@ const SeedlingAssignmentPage = () => {
                       Planter
                     </Typography>
                     <Typography variant="body1" fontWeight="600">
-                      {request.planterName}
+                      {request.fullName}
                     </Typography>
                   </Box>
                 </Box>
@@ -646,7 +614,7 @@ const SeedlingAssignmentPage = () => {
                       Location
                     </Typography>
                     <Typography variant="body1" fontWeight="600">
-                      {request.locationName}
+                      {request.location_address}
                     </Typography>
                   </Box>
                 </Box>
@@ -836,7 +804,8 @@ const SeedlingAssignmentPage = () => {
                           <Chip 
                             key={idx}
                             icon={<EcoIcon />}
-                            label={s.seedling_commonName}
+                            label={s.seedling_commonName
+                            }
                             sx={{ 
                               bgcolor: 'rgba(255,255,255,0.2)',
                               color: 'white',
@@ -1054,7 +1023,7 @@ const SeedlingAssignmentPage = () => {
                             Planter
                           </Typography>
                           <Typography variant="body1" fontWeight="600">
-                            {selectedRequest.planterName}
+                            {selectedRequest.fullName}
                           </Typography>
                         </Box>
                       </Box>
@@ -1082,7 +1051,7 @@ const SeedlingAssignmentPage = () => {
                             Location
                           </Typography>
                           <Typography variant="body1" fontWeight="600">
-                            {selectedRequest.locationName}
+                            {selectedRequest.location_address}
                           </Typography>
                         </Box>
                       </Box>
@@ -1240,7 +1209,7 @@ const SeedlingAssignmentPage = () => {
                           Name
                         </Typography>
                         <Typography variant="body1" fontWeight="600">
-                          {selectedRequest.planterName}
+                          {selectedRequest.fullName}
                         </Typography>
                       </Box>
                       <Box>
@@ -1264,7 +1233,7 @@ const SeedlingAssignmentPage = () => {
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <Box>
                         <Typography variant="body1" fontWeight="600">
-                          {selectedRequest.locationName}
+                          {selectedRequest.location_address}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
                           Planting location
@@ -1275,8 +1244,7 @@ const SeedlingAssignmentPage = () => {
                         size="small"
                         startIcon={<LocationIcon />}
                         onClick={() => {
-                          // Open Google Maps with the location
-                          const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedRequest.locationName)}`;
+                          const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedRequest.location_address)}`;
                           window.open(mapsUrl, '_blank');
                         }}
                         sx={{ 
