@@ -264,17 +264,50 @@ function AdminDashboard() {
     try {
       setLoading(true);
       
-      // 1. Fetch Users
-      const usersData = await apiService.getUsers();
+      // 1. Fetch Users from all collections
+      let allUsers = [];
+      
+      // Fetch users from users collection (this may contain admins, stakeholders, etc.)
+      try {
+        const usersData = await apiService.getUsers();
+        allUsers = [...usersData];
+      } catch (error) {
+        console.warn('Error fetching users collection:', error);
+      }
 
-      // Calculate user breakdown by role
-      const userBreakdown = usersData.reduce((acc, userData) => {
+      // Calculate user breakdown by role/collection
+      const userBreakdown = allUsers.reduce((acc, userData) => {
         acc.total++;
-        const role = userData.role_id || userData.roles || userData.role || 'unknown';
-        const roleLower = role.toLowerCase();
-        if (roleLower.includes('admin')) acc.admins++;
-        else if (roleLower.includes('field') || roleLower.includes('planter')) acc.fieldUsers++;
-        else if (roleLower.includes('denr')) acc.denrStaff++;
+        
+        // Determine role from roleRef or organization
+        let userRole = 'unknown';
+        
+        if (userData.roleRef) {
+          // Extract role from roleRef path (e.g., "/roles/admin" -> "admin")
+          const roleMatch = userData.roleRef.match(/\/roles\/(.+)$/);
+          if (roleMatch) {
+            userRole = roleMatch[1].toLowerCase();
+          }
+        } else if (userData.role_id || userData.roles || userData.role) {
+          userRole = (userData.role_id || userData.roles || userData.role).toLowerCase();
+        } else if (userData.organization) {
+          // Use organization to infer role if roleRef is missing
+          userRole = userData.organization.toLowerCase();
+        } else if (userData.userId && !userData.roleRef) {
+          // Users with userId but no roleRef are likely planters (from mobile app)
+          userRole = 'planter';
+        }
+        
+        // Categorize users
+        if (userRole.includes('admin')) {
+          acc.admins++;
+        } else if (userRole.includes('denr') || userRole.includes('stakeholder')) {
+          acc.denrStaff++;
+        } else if (userRole.includes('field') || userRole.includes('planter') || userData.userId) {
+          // Count users with userId as field users (planters from mobile app)
+          acc.fieldUsers++;
+        }
+        
         return acc;
       }, { total: 0, admins: 0, fieldUsers: 0, denrStaff: 0 });
 
@@ -287,8 +320,11 @@ function AdminDashboard() {
           let requesterName = 'Unknown User';
           let locationName = 'Not specified';
           
-          // Fetch user name if userRef exists
-          if (request.userRef) {
+          // Prioritize fullName field over userRef lookup
+          if (request.fullName) {
+            requesterName = request.fullName;
+          } else if (request.userRef) {
+            // Only fetch from userRef if fullName is not available
             try {
               const userInfo = await resolveUserRef(request.userRef);
               requesterName = userInfo.name;
@@ -304,8 +340,12 @@ function AdminDashboard() {
             }
           }
 
-          // Fetch location name - UPDATED TO USE LOCATION REF PARSING
-          if (request.locationRef) {
+          // Get location - prioritize location_address, then location field
+          if (request.location_address) {
+            locationName = request.location_address;
+          } else if (request.location) {
+            locationName = request.location;
+          } else if (request.locationRef) {
             try {
               const locationInfo = await resolveLocationRef(request.locationRef);
               locationName = locationInfo.name;
@@ -313,20 +353,29 @@ function AdminDashboard() {
               console.error('Error fetching location:', err);
             }
           } else if (request.locationId) {
-            try {
-              // If it's just a location ID, use it directly
-              locationName = request.locationId;
-            } catch (err) {
-              console.error('Error processing location ID:', err);
-            }
+            locationName = request.locationId;
           }
 
-          // Format date properly
+          // Format preferred date properly
           let formattedDate = 'Not specified';
           if (request.preferred_date) {
             try {
-              const date = new Date(request.preferred_date);
-              formattedDate = date.toLocaleDateString();
+              // Handle both timestamp and string date formats
+              if (typeof request.preferred_date === 'string') {
+                const date = new Date(request.preferred_date);
+                formattedDate = date.toLocaleDateString('en-US', { 
+                  year: 'numeric', 
+                  month: 'short', 
+                  day: 'numeric' 
+                });
+              } else if (request.preferred_date.toDate) {
+                // Firestore timestamp
+                formattedDate = request.preferred_date.toDate().toLocaleDateString('en-US', { 
+                  year: 'numeric', 
+                  month: 'short', 
+                  day: 'numeric' 
+                });
+              }
             } catch (err) {
               formattedDate = request.preferred_date;
             }
@@ -339,8 +388,12 @@ function AdminDashboard() {
             site: locationName,
             date: request.request_date ? new Date(request.request_date) : new Date(),
             preferredDate: formattedDate,
-            remarks: request.request_remarks || '-',
+            remarks: request.request_notes || request.request_remarks || '-',
             status: request.request_status || 'pending',
+            coordinates: {
+              lat: request.location_lat,
+              lng: request.location_lng
+            },
             ...request
           };
         })
@@ -687,8 +740,7 @@ function AdminDashboard() {
                                 🔵 IoT Sensor
                               </Typography>
                               <Divider sx={{ my: 1 }} />
-                              <Typography variant="body2"><strong>Location:</strong> {sensor.name}</Typography>
-                              <Typography variant="body2"><strong>Sensor ID:</strong> {sensor.id.slice(0, 12)}...</Typography>
+                              <Typography variant="body2"><strong>Sensor ID:</strong> {sensor.name}</Typography>
                               <Typography variant="body2"><strong>Type:</strong> {sensor.sensorType}</Typography>
                               <Typography variant="body2">
                                 <strong>Status:</strong> {' '}
@@ -842,17 +894,36 @@ function AdminDashboard() {
                     {dashboardData.pendingRequests.map((request) => (
                       <TableRow key={request.id} hover>
                         <TableCell>
-                          <Typography variant="body2" fontWeight="medium">
+                          <Typography variant="body2" fontWeight="medium" noWrap>
                             {request.requesterName}
                           </Typography>
+                          {request.organization && request.organization !== 'None' && (
+                            <Typography variant="caption" color="text.secondary" display="block">
+                              {request.organization}
+                            </Typography>
+                          )}
                         </TableCell>
                         <TableCell>
-                          <Typography variant="body2">
+                          <Typography 
+                            variant="body2" 
+                            sx={{ 
+                              maxWidth: 200,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap'
+                            }}
+                            title={request.site}
+                          >
                             {request.site}
                           </Typography>
+                          {request.coordinates?.lat && request.coordinates?.lng && (
+                            <Typography variant="caption" color="text.secondary" display="block">
+                              📍 {request.coordinates.lat.toFixed(4)}, {request.coordinates.lng.toFixed(4)}
+                            </Typography>
+                          )}
                         </TableCell>
                         <TableCell>
-                          <Typography variant="body2">
+                          <Typography variant="body2" noWrap>
                             {request.preferredDate}
                           </Typography>
                         </TableCell>
