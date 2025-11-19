@@ -334,7 +334,7 @@ const SeedlingAssignmentPage = () => {
       }
       
       const notificationData = {
-        notification_type: 'pending',
+        notification_type: 'assigned_seedlings',
         notif_message: `Your seedling has been assigned for planting at ${request.location_address}`,
         data: {
           requestId: request.id,
@@ -592,11 +592,20 @@ const SeedlingAssignmentPage = () => {
         console.log(`✅ Created planting task with ${seedlingsToAssign.length} seedlings`);
       }
 
-      // Update the planting request status
-      await apiService.updatePlantingRequest(selectedRequest.id, {
-        status: 'assigned_seedling',
-        reviewedBy: user.id
-      });
+      console.log('✅ Task assignment complete');
+
+      // Update the planting request status to 'assigned_seedlings'
+      try {
+        await apiService.updatePlantingRequest(selectedRequest.id, {
+          request_status: 'assigned_seedlings',
+          assigned_at: new Date().toISOString(),
+          assigned_by: user.id
+        });
+        console.log('✅ Updated planting request status to assigned_seedlings');
+      } catch (updateError) {
+        console.warn('⚠️ Could not update planting request status:', updateError.message);
+        // Don't fail the whole operation if this fails
+      }
 
       // Create notification with proper Firestore format
       await createSeedlingAssignmentNotification(selectedRequest, seedlingsToAssign[0]);
@@ -605,11 +614,37 @@ const SeedlingAssignmentPage = () => {
       const updatedTasks = await apiService.getPlantingTasks();
       setPlantingTasks(updatedTasks);
 
+      // Refresh planting requests and filter out assigned ones
+      const updatedRequests = await apiService.getPlantingRequests();
+      const filteredRequests = updatedRequests.filter(request => 
+        request.request_status === 'approved' || 
+        request.request_status === 'pending'
+      );
+
+      const enrichedRequests = await Promise.all(
+        filteredRequests.map(async (request) => {
+          const userEmail = await fetchUserEmail(request.userRef);
+          return {
+            id: request.id,
+            ...request,
+            fullName: request.fullName || 'Unknown User',
+            planterEmail: userEmail,
+            location_address: request.location_address || request.location || 'Unknown Location',
+            status: request.request_status,
+            request_date: request.request_date,
+            preferred_date: request.preferred_date,
+            reviewedAt: convertTimestamp(request.reviewedAt)
+          };
+        })
+      );
+
+      setPlantingRequests(enrichedRequests);
+
       setAssignDialogOpen(false);
       setSelectedRequest(null);
       setAlert({ 
         open: true, 
-        message: `${seedlingsToAssign.length} seedling(s) assigned to ${selectedRequest.fullName} successfully!`, 
+        message: `${seedlingsToAssign.length} seedling(s) assigned to ${selectedRequest.fullName} successfully! Request removed from pending list.`, 
         severity: 'success' 
       });
     } catch (err) {
