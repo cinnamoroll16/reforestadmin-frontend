@@ -1,4 +1,4 @@
-// src/pages/Notification.js - DEBUGGED VERSION
+// src/pages/Notification.js - UPDATED VERSION
 import React, { useState, useEffect } from 'react';
 import {
   Box, Typography, Paper, Button, Chip, Dialog, DialogTitle, DialogContent,
@@ -26,7 +26,7 @@ import PersonIcon from '@mui/icons-material/Person';
 const drawerWidth = 240;
 
 // =============================================================================
-// DATE FORMATTING FUNCTIONS (UNCHANGED)
+// DATE FORMATTING FUNCTIONS
 // =============================================================================
 
 const formatDisplayDate = (dateInput) => {
@@ -95,76 +95,167 @@ const formatDisplayDateTime = (timestampInput) => {
 };
 
 // =============================================================================
-// DEBUGGED DATA FETCHING FUNCTIONS
+// HELPER FUNCTIONS FOR DATA FETCHING
 // =============================================================================
 
-// DEBUGGED: Fixed fetchNotifications with better response handling
+// Fetch user data for email only
+const fetchUserData = async (userRef) => {
+  try {
+    if (!userRef) {
+      return { fullName: 'Unknown User', email: 'N/A' };
+    }
+    
+    let userId;
+    if (userRef.includes('/')) {
+      userId = userRef.split('/').pop();
+    } else {
+      userId = userRef;
+    }
+    
+    let userData = {};
+    try {
+      if (apiService.getUser && typeof apiService.getUser === 'function') {
+        userData = await apiService.getUser(userId);
+      }
+    } catch (error) {
+      console.log('User API not available for email');
+    }
+    
+    return {
+      fullName: userData.fullName || 'Unknown User',
+      email: userData.email || 'N/A'
+    };
+  } catch (error) {
+    console.error('Error in fetchUserData:', error);
+    return { fullName: 'Unknown User', email: 'N/A' };
+  }
+};
+
+// Fetch planting task data from taskRef (simplified since we don't need location anymore)
+const fetchTaskData = async (taskRef) => {
+  try {
+    if (!taskRef) {
+      return { recommendedSeedlings: [] };
+    }
+    
+    let taskId;
+    if (taskRef.includes('/')) {
+      taskId = taskRef.split('/').pop();
+    } else if (taskRef.startsWith('plantingtasks/')) {
+      taskId = taskRef.replace('plantingtasks/', '');
+    } else {
+      taskId = taskRef;
+    }
+    
+    let taskData = {};
+    try {
+      if (apiService.getPlantingTaskById && typeof apiService.getPlantingTaskById === 'function') {
+        taskData = await apiService.getPlantingTaskById(taskId);
+      }
+    } catch (error) {
+      console.log('Task API not available');
+    }
+    
+    return {
+      recommendedSeedlings: taskData.recommendedSeedlings || [],
+      taskStatus: taskData.task_status || 'Unknown'
+    };
+  } catch (error) {
+    console.error('Error fetching task data:', error);
+    return { recommendedSeedlings: [] };
+  }
+};
+
+// Fetch seedling data
+const fetchSeedlingData = async (seedlingRef, taskData) => {
+  try {
+    if (!seedlingRef) {
+      return { seedlingName: 'Unknown Seedling' };
+    }
+    
+    // If seedlingRef is already a name (like "Cashew"), use it directly
+    if (!seedlingRef.includes('/') && !seedlingRef.startsWith('seedlings/')) {
+      // Try to find more details from task data if available
+      if (taskData && taskData.recommendedSeedlings) {
+        const seedlingDetail = taskData.recommendedSeedlings.find(
+          seedling => seedling.seedling_commonName === seedlingRef
+        );
+        if (seedlingDetail) {
+          return {
+            seedlingName: seedlingDetail.seedling_commonName,
+            scientificName: seedlingDetail.seedling_scientificName,
+            category: seedlingDetail.seedling_category,
+            successRate: seedlingDetail.seedling_successRate
+          };
+        }
+      }
+      
+      return { seedlingName: seedlingRef };
+    }
+    
+    // If it's a reference, try to resolve it
+    let seedlingId;
+    if (seedlingRef.includes('/')) {
+      seedlingId = seedlingRef.split('/').pop();
+    } else {
+      seedlingId = seedlingRef;
+    }
+    
+    let seedlingData = {};
+    try {
+      if (apiService.getTreeSeedlingById && typeof apiService.getTreeSeedlingById === 'function') {
+        seedlingData = await apiService.getTreeSeedlingById(seedlingId);
+      }
+    } catch (error) {
+      console.log('Seedling API not available');
+    }
+    
+    return {
+      seedlingName: seedlingData.seedling_commonName || seedlingData.commonName || seedlingRef,
+      scientificName: seedlingData.seedling_scientificName || seedlingData.scientificName,
+      category: seedlingData.seedling_category || seedlingData.category,
+      successRate: seedlingData.seedling_successRate || seedlingData.successRate
+    };
+  } catch (error) {
+    console.error('Error fetching seedling data:', error);
+    return { seedlingName: seedlingRef || 'Unknown Seedling' };
+  }
+};
+
+// =============================================================================
+// DATA FETCHING FUNCTIONS
+// =============================================================================
+
 const fetchNotifications = async () => {
   try {
-    console.log('🔔 Fetching notifications via API...');
-    
     let response;
     try {
       response = await apiService.getNotifications();
-      console.log('🔍 Notifications API raw response:', response);
     } catch (apiError) {
-      console.error('❌ API call failed:', apiError);
+      console.error('Notifications API failed:', apiError);
       return [];
     }
-    
-    // DEBUG: Log the exact response structure
-    console.log('🔍 Response structure analysis:', {
-      type: typeof response,
-      isArray: Array.isArray(response),
-      keys: response ? Object.keys(response) : 'no response',
-      hasNotifications: response && 'notifications' in response,
-      hasData: response && 'data' in response,
-      success: response && response.success
-    });
     
     let notifications = [];
     
-    // Handle ALL possible response structures
+    // Handle different response structures
     if (Array.isArray(response)) {
-      // Structure: [...]
-      console.log('✅ Using direct array response');
       notifications = response;
     } else if (response && response.success && Array.isArray(response.notifications)) {
-      // Structure: { success: true, notifications: [...] }
-      console.log('✅ Using response.notifications array');
       notifications = response.notifications;
     } else if (response && Array.isArray(response.notifications)) {
-      // Structure: { notifications: [...] }
-      console.log('✅ Using response.notifications array (without success flag)');
       notifications = response.notifications;
     } else if (response && response.success && Array.isArray(response.data)) {
-      // Structure: { success: true, data: [...] }
-      console.log('✅ Using response.data array');
       notifications = response.data;
     } else if (response && Array.isArray(response.data)) {
-      // Structure: { data: [...] }
-      console.log('✅ Using response.data array (without success flag)');
       notifications = response.data;
     } else {
-      console.warn('⚠️ Unexpected notifications response format, returning empty array:', response);
       return [];
     }
     
-    console.log('✅ Raw notifications loaded:', notifications.length);
-    
-    if (notifications.length > 0) {
-      console.log('📋 Sample raw notification:', notifications[0]);
-      console.log('📋 Raw notification keys:', Object.keys(notifications[0]));
-    }
-    
-    // Transform to match expected structure with fallbacks
+    // Transform notifications
     const transformedNotifications = notifications.map(notification => {
-      // Extract ID from various possible fields
       const id = notification.notificationId || notification.id || notification._id;
-      
-      if (!id) {
-        console.warn('⚠️ Notification missing ID:', notification);
-      }
       
       return {
         id: id || `temp-${Date.now()}-${Math.random()}`,
@@ -172,70 +263,44 @@ const fetchNotifications = async () => {
         title: notification.title || 'Notification',
         message: notification.message || notification.notif_message || 'No message',
         notif_message: notification.notif_message || notification.message || 'No message',
-        
-        // User information with fallbacks
-        fullName: notification.fullName || notification.userName || notification.planterName || 'Unknown User',
+        fullName: notification.fullName || notification.userName || 'Unknown User',
         userEmail: notification.userEmail || notification.email,
-        
-        // Location information
-        location: notification.location || notification.location_address || notification.locationName,
-        location_address: notification.location_address || notification.location || notification.locationName,
-        
-        // Date fields
+        location: notification.location || notification.location_address,
+        location_address: notification.location_address || notification.location,
         preferred_date: notification.preferred_date,
         request_date: notification.request_date,
-        
-        // Reference fields
         requestId: notification.requestId,
         userId: notification.userId || notification.userRef,
-        
-        // Status fields
         status: notification.status || notification.request_status || 'unknown',
         request_status: notification.request_status || notification.status || 'unknown',
-        
-        // Read status
         isRead: notification.isRead || notification.read || false,
         read: notification.read || notification.isRead || false,
-        
-        // Timestamps
         created_at: notification.created_at || notification.notif_timestamp || notification.timestamp,
         timestamp: notification.timestamp || notification.created_at || notification.notif_timestamp,
-        
-        // Mark as real API notification
         isRealNotification: true
       };
-    }).filter(notification => notification.id); // Filter out notifications without IDs
-    
-    console.log('✅ Transformed notifications:', transformedNotifications.length);
-    
-    if (transformedNotifications.length > 0) {
-      console.log('📋 Sample transformed notification:', transformedNotifications[0]);
-    }
+    }).filter(notification => notification.id);
     
     return transformedNotifications;
   } catch (error) {
-    console.error('❌ Fetch notifications failed:', error.message);
+    console.error('Fetch notifications failed:', error.message);
     return [];
   }
 };
 
-// DEBUGGED: Fixed fetchPlantingRequests with proper error handling
+// Fetch planting requests
 const fetchPlantingRequests = async () => {
   try {
-    console.log('🌱 Fetching planting requests...');
     let response;
-    
     try {
       response = await apiService.getPlantingRequests();
-      console.log('🔍 Planting requests raw response:', response);
     } catch (error) {
-      console.error('❌ API call failed:', error);
+      console.error('Planting requests API failed:', error);
       return [];
     }
     
     let requests = [];
     
-    // Handle different response structures
     if (Array.isArray(response)) {
       requests = response;
     } else if (response && Array.isArray(response.data)) {
@@ -243,55 +308,51 @@ const fetchPlantingRequests = async () => {
     } else if (response && response.success && Array.isArray(response.data)) {
       requests = response.data;
     } else {
-      console.warn('⚠️ Unexpected planting requests response format:', response);
       return [];
     }
     
-    console.log('✅ Planting requests loaded:', requests.length);
+    // Enrich requests with user data
+    const enrichedRequests = await Promise.all(
+      requests.map(async (request) => {
+        const userData = await fetchUserData(request.userRef);
+        
+        return {
+          ...request,
+          id: request.id || request.requestId,
+          requestId: request.requestId || request.id,
+          fullName: request.fullName || userData.fullName,
+          userEmail: userData.email,
+          location_address: request.location_address || request.location || 'Unknown Location',
+          locationName: request.location_address || request.location || 'Unknown Location',
+          request_status: request.request_status || request.status || 'pending',
+          organization: request.organization || 'Volunteer Planter',
+          request_notes: request.request_notes || request.notes,
+          formatted_preferred_date: formatDisplayDate(request.preferred_date),
+          formatted_request_date: formatDisplayDate(request.request_date)
+        };
+      })
+    );
     
-    if (requests.length > 0) {
-      console.log('📋 Sample planting request:', requests[0]);
-      console.log('📋 Planting request keys:', Object.keys(requests[0]));
-    }
-    
-    return requests.map(request => ({
-      ...request,
-      // Ensure consistent field names with fallbacks
-      id: request.id || request.requestId,
-      requestId: request.requestId || request.id,
-      fullName: request.fullName || request.planterName || 'Unknown User',
-      location_address: request.location_address || request.location || request.locationName || 'Unknown Location',
-      locationName: request.locationName || request.location_address || request.location || 'Unknown Location',
-      request_status: request.request_status || request.status || 'pending',
-      userEmail: request.userEmail || request.email,
-      organization: request.organization || 'Volunteer Planter',
-      request_notes: request.request_notes || request.notes,
-      formatted_preferred_date: formatDisplayDate(request.preferred_date),
-      formatted_request_date: formatDisplayDate(request.request_date)
-    }));
+    return enrichedRequests;
   } catch (error) {
-    console.error('❌ Fetch planting requests failed:', error.message);
+    console.error('Fetch planting requests failed:', error.message);
     return [];
   }
 };
 
-// DEBUGGED: Fixed fetchPlantingRecords with proper response handling
-const fetchPlantingRecords = async () => {
+// Updated fetchPlantingRecords with focused debugging
+const fetchPlantingRecords = async (plantingRequests) => {
   try {
-    console.log('📊 Fetching planting records...');
     let response;
-    
     try {
       response = await apiService.getPlantingRecords();
-      console.log('🔍 Planting records raw response:', response);
     } catch (error) {
-      console.error('❌ API call failed:', error);
+      console.error('Planting records API failed:', error);
       return [];
     }
     
     let records = [];
     
-    // Handle different response structures
     if (Array.isArray(response)) {
       records = response;
     } else if (response && Array.isArray(response.data)) {
@@ -299,42 +360,161 @@ const fetchPlantingRecords = async () => {
     } else if (response && response.success && Array.isArray(response.data)) {
       records = response.data;
     } else {
-      console.warn('⚠️ Unexpected planting records response format:', response);
       return [];
     }
     
-    console.log('✅ Planting records loaded:', records.length);
+    console.log('🔍 DEBUG: Planting requests for matching:', plantingRequests);
+    console.log('🔍 DEBUG: Planting records to enrich:', records);
     
-    if (records.length > 0) {
-      console.log('📋 Sample planting record:', records[0]);
-      console.log('📋 Planting record keys:', Object.keys(records[0]));
-    }
+    // Create maps from planting requests for user names and locations
+    const userRefToNameMap = {};
+    const userRefToLocationMap = {};
     
-    return records.map(record => {
-      const recordDate = record.record_date || record.createdAt;
+    plantingRequests.forEach((request, index) => {
+      console.log(`🔍 DEBUG: Planting Request ${index}:`, {
+        userRef: request.userRef,
+        fullName: request.fullName,
+        location_address: request.location_address,
+        location: request.location,
+        locationName: request.locationName,
+        id: request.id
+      });
       
-      return {
-        ...record,
-        // Ensure consistent field names with fallbacks
-        id: record.id || record.recordId,
-        fullName: record.fullName || record.userName || record.planterName || 'Unknown User',
-        locationName: record.locationName || record.location_address || record.location || 'Unknown Location',
-        treeSeedlingName: record.treeSeedlingName || record.seedlingName || record.seedlingRef || 'Unknown Tree',
-        seedlingRef: record.seedlingRef || record.treeSeedlingName,
-        userEmail: record.userEmail || record.email,
-        status: record.status || 'completed',
-        notes: record.notes || record.record_notes,
-        formatted_planting_date: formatDisplayDateTime(recordDate)
-      };
+      if (request.userRef) {
+        // Store with exact userRef match
+        if (request.fullName) {
+          userRefToNameMap[request.userRef] = request.fullName;
+        }
+        
+        // Check ALL possible location fields
+        const location = request.location_address || request.location || request.locationName;
+        console.log(`🔍 DEBUG: Location for request ${index}:`, {
+          location_address: request.location_address,
+          location: request.location,
+          locationName: request.locationName,
+          finalLocation: location
+        });
+        
+        if (location && location !== 'Unknown Location') {
+          userRefToLocationMap[request.userRef] = location;
+          console.log(`✅ DEBUG: Stored location for userRef ${request.userRef}: ${location}`);
+        } else {
+          console.log(`❌ DEBUG: No valid location found for userRef ${request.userRef}`);
+        }
+      }
     });
+    
+    console.log('🔍 DEBUG: Final userRefToNameMap:', userRefToNameMap);
+    console.log('🔍 DEBUG: Final userRefToLocationMap:', userRefToLocationMap);
+    
+    // Enrich records with referenced data
+    const enrichedRecords = await Promise.all(
+      records.map(async (record, index) => {
+        try {
+          console.log(`\n🔍 DEBUG: Processing record ${index}:`, {
+            recordId: record.id,
+            recordUserRef: record.userRef,
+            recordUserRefType: typeof record.userRef
+          });
+          
+          // Check if we can find this userRef in our maps
+          const foundName = userRefToNameMap[record.userRef];
+          const foundLocation = userRefToLocationMap[record.userRef];
+          
+          console.log(`🔍 DEBUG: Lookup results for record ${index}:`, {
+            userRef: record.userRef,
+            foundName: foundName,
+            foundLocation: foundLocation,
+            nameInMap: !!foundName,
+            locationInMap: !!foundLocation
+          });
+          
+          // If no location found, try alternative userRef formats
+          if (!foundLocation) {
+            console.log(`🔍 DEBUG: Trying alternative userRef formats for record ${index}`);
+            
+            // Try without leading slash
+            const userRefWithoutSlash = record.userRef.startsWith('/') ? record.userRef.substring(1) : record.userRef;
+            const altLocation1 = userRefToLocationMap[userRefWithoutSlash];
+            
+            // Try just the user ID part
+            const userIdOnly = record.userRef.split('/').pop();
+            const altLocation2 = userRefToLocationMap[userIdOnly];
+            
+            console.log(`🔍 DEBUG: Alternative lookups:`, {
+              userRefWithoutSlash,
+              altLocation1,
+              userIdOnly, 
+              altLocation2
+            });
+          }
+          
+          const userFullName = foundName || 'Unknown User';
+          const userLocation = foundLocation || 'Unknown Location';
+          
+          const [userData, taskData] = await Promise.all([
+            fetchUserData(record.userRef),
+            fetchTaskData(record.taskRef)
+          ]);
+          
+          const seedlingData = await fetchSeedlingData(record.seedlingRef, taskData);
+          
+          const recordDate = record.record_date || record.record_datePlanted || record.createdAt;
+          
+          const enrichedRecord = {
+            ...record,
+            id: record.id || record.recordId,
+            fullName: userFullName,
+            userEmail: userData.email,
+            locationName: userLocation,
+            locationData: { location_name: userLocation },
+            treeSeedlingName: seedlingData.seedlingName,
+            scientificName: seedlingData.scientificName,
+            seedlingCategory: seedlingData.category,
+            successRate: seedlingData.successRate,
+            seedlingRef: record.seedlingRef,
+            taskStatus: taskData.taskStatus,
+            recommendedSeedlings: taskData.recommendedSeedlings,
+            status: record.status || 'completed',
+            notes: record.notes || record.record_notes || 'No notes',
+            formatted_planting_date: formatDisplayDateTime(recordDate),
+            raw_record_date: recordDate
+          };
+          
+          console.log(`✅ DEBUG: Final enriched record ${index}:`, {
+            fullName: enrichedRecord.fullName,
+            locationName: enrichedRecord.locationName,
+            success: enrichedRecord.locationName !== 'Unknown Location'
+          });
+          
+          return enrichedRecord;
+          
+        } catch (error) {
+          console.error(`❌ DEBUG: Error enriching planting record ${index}:`, error);
+          const recordDate = record.record_date || record.record_datePlanted || record.createdAt;
+          return {
+            ...record,
+            id: record.id || record.recordId,
+            fullName: 'Unknown User',
+            userEmail: 'N/A',
+            locationName: 'Unknown Location',
+            treeSeedlingName: record.seedlingRef || 'Unknown Tree',
+            status: record.status || 'completed',
+            notes: record.notes || 'No notes',
+            formatted_planting_date: formatDisplayDateTime(recordDate)
+          };
+        }
+      })
+    );
+    
+    return enrichedRecords;
   } catch (error) {
-    console.error('❌ Fetch planting records failed:', error.message);
+    console.error('Fetch planting records failed:', error.message);
     return [];
   }
 };
-
 // =============================================================================
-// MAIN COMPONENT - DEBUGGED DATA LOADING
+// MAIN COMPONENT
 // =============================================================================
 
 const NotificationPanel = () => {
@@ -366,65 +546,33 @@ const NotificationPanel = () => {
     setActiveTab(newValue);
   };
 
-  // DEBUGGED: Improved data loading with individual error handling
+  // Data loading
   const loadData = async () => {
     try {
       setLoading(true);
-      console.log('🔄 Loading all data...');
 
-      // Load data with individual error handling
-      let notificationsData = [];
-      let requestsData = [];
-      let recordsData = [];
+      // First fetch notifications and planting requests
+      const [notificationsData, requestsData] = await Promise.all([
+        fetchNotifications().catch(error => {
+          console.error('Failed to load notifications:', error);
+          return [];
+        }),
+        fetchPlantingRequests().catch(error => {
+          console.error('Failed to load planting requests:', error);
+          return [];
+        })
+      ]);
 
-      try {
-        notificationsData = await fetchNotifications();
-        console.log('✅ Notifications loaded:', notificationsData.length);
-      } catch (notifError) {
-        console.error('❌ Failed to load notifications:', notifError);
-        setAlert({
-          open: true,
-          message: 'Failed to load notifications',
-          severity: 'warning'
-        });
-      }
-
-      try {
-        requestsData = await fetchPlantingRequests();
-        console.log('✅ Planting requests loaded:', requestsData.length);
-      } catch (requestError) {
-        console.error('❌ Failed to load planting requests:', requestError);
-        setAlert({
-          open: true,
-          message: 'Failed to load planting requests',
-          severity: 'warning'
-        });
-      }
-
-      try {
-        recordsData = await fetchPlantingRecords();
-        console.log('✅ Planting records loaded:', recordsData.length);
-      } catch (recordError) {
-        console.error('❌ Failed to load planting records:', recordError);
-        setAlert({
-          open: true,
-          message: 'Failed to load planting records',
-          severity: 'warning'
-        });
-      }
+      // Then fetch planting records using the planting requests data
+      const recordsData = await fetchPlantingRecords(requestsData).catch(error => {
+        console.error('Failed to load planting records:', error);
+        return [];
+      });
 
       setNotifications(notificationsData);
       setPlantingRequests(requestsData);
       setPlantingRecords(recordsData);
 
-      console.log('✅ All data loading completed');
-      console.log('📊 Final Stats:', {
-        notifications: notificationsData.length,
-        requests: requestsData.length,
-        records: recordsData.length
-      });
-
-      // Show success message if any data was loaded
       const totalLoaded = notificationsData.length + requestsData.length + recordsData.length;
       if (totalLoaded > 0) {
         setAlert({
@@ -435,13 +583,13 @@ const NotificationPanel = () => {
       } else {
         setAlert({
           open: true,
-          message: 'No data available. Please check your connection.',
+          message: 'No data available',
           severity: 'info'
         });
       }
 
     } catch (error) {
-      console.error('❌ Error in loadData:', error);
+      console.error('Error in loadData:', error);
       setAlert({
         open: true,
         message: 'Error loading data: ' + error.message,
@@ -463,9 +611,6 @@ const NotificationPanel = () => {
       clearInterval(pollInterval);
     };
   }, []);
-
-  // Rest of the component functions remain the same...
-  // [Keep all the existing handle functions, helper functions, NotificationRow, etc.]
 
   const handleViewDetails = (request) => {
     setSelectedRequest(request);
@@ -623,9 +768,8 @@ const NotificationPanel = () => {
     return formatDisplayDateTime(date);
   };
 
-  // DEBUGGED: Improved notification combining with better IDs
+  // Combine all notifications
   const allNotifications = [
-    // Real notifications from API
     ...notifications.map(notification => ({
       ...notification,
       id: notification.id,
@@ -637,7 +781,6 @@ const NotificationPanel = () => {
       timestamp: notification.timestamp || notification.created_at,
       isRealNotification: true
     })),
-    // Synthetic notifications from planting requests
     ...plantingRequests.map(request => ({
       id: `request-${request.id || request.requestId}`,
       type: 'plant_request',
@@ -651,7 +794,6 @@ const NotificationPanel = () => {
       timestamp: request.request_date,
       isRealNotification: false
     })),
-    // Synthetic notifications from planting records
     ...plantingRecords.map(record => ({
       id: `record-${record.id}`,
       type: 'planting_record',
@@ -675,7 +817,7 @@ const NotificationPanel = () => {
   const unreadCount = allNotifications.filter(n => !n.read).length;
   const plantingRequestUnreadCount = plantingRequestNotifications.filter(n => !n.read).length;
 
-  // NotificationRow component (unchanged)
+  // NotificationRow component
   const NotificationRow = ({ notification }) => (
     <Paper 
       sx={{ 
@@ -828,9 +970,6 @@ const NotificationPanel = () => {
       </Box>
     );
   }
-
-  // The rest of your JSX remains exactly the same...
-  // [Keep all the dialog components, tabs, and layout]
 
   return (
     <Box sx={{ display: 'flex', bgcolor: '#f8fafc', minHeight: '100vh' }}>
@@ -995,7 +1134,7 @@ const NotificationPanel = () => {
           </>
         )}
 
-        {/* ========== UPDATED PLANTING REQUEST DETAILS DIALOG ========== */}
+        {/* Planting Request Details Dialog */}
         <Dialog 
           open={detailDialogOpen} 
           onClose={() => setDetailDialogOpen(false)} 
@@ -1078,8 +1217,8 @@ const NotificationPanel = () => {
                           Status
                         </Typography>
                         <Chip 
-                          label={selectedRequest.requestStatus || selectedRequest.request_status || 'pending'} 
-                          color={getStatusColor(selectedRequest.requestStatus || selectedRequest.request_status || 'pending')}
+                          label={selectedRequest.request_status || 'pending'} 
+                          color={getStatusColor(selectedRequest.request_status || 'pending')}
                           size="small"
                           sx={{ fontWeight: 600 }}
                         />
@@ -1113,7 +1252,7 @@ const NotificationPanel = () => {
                   </Card>
                 </Box>
                 
-                {/* Assigned Seedling - Placeholder for future implementation */}
+                {/* Assigned Seedling */}
                 {selectedRequest.seedlingRef && (
                   <Box>
                     <Typography variant="subtitle1" fontWeight="600" gutterBottom>
@@ -1149,164 +1288,249 @@ const NotificationPanel = () => {
           <DialogActions sx={{ p: 2 }}>
             <Button 
               variant="contained" 
-              onClick={() => {
-                setDetailDialogOpen(false);
-                // You can add assign seedling functionality here if needed
-              }}
+              onClick={() => setDetailDialogOpen(false)}
               startIcon={<CheckCircleIcon />}
               sx={{
                 bgcolor: '#2e7d32',
                 '&:hover': { bgcolor: '#1b5e20' }
               }}
             >
-              View Full Details
-            </Button>
-            <Button onClick={() => setDetailDialogOpen(false)} variant="outlined">
               Close
             </Button>
           </DialogActions>
         </Dialog>
 
-        {/* ========== UPDATED PLANTING RECORD DETAILS DIALOG ========== */}
-<Dialog
-  open={recordDialogOpen}
-  onClose={() => setRecordDialogOpen(false)}
-  maxWidth="sm"
-  fullWidth
->
-  <DialogTitle>
-    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-      <Typography variant="h6">Planting Record Details</Typography>
-      <IconButton onClick={() => setRecordDialogOpen(false)} size="small">
-        <CloseIcon />
-      </IconButton>
-    </Box>
-  </DialogTitle>
+        {/* Planting Record Details Dialog */}
+        <Dialog
+          open={recordDialogOpen}
+          onClose={() => setRecordDialogOpen(false)}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Typography variant="h6">Planting Record Details</Typography>
+              <IconButton onClick={() => setRecordDialogOpen(false)} size="small">
+                <CloseIcon />
+              </IconButton>
+            </Box>
+          </DialogTitle>
 
-  <DialogContent dividers>
-    {selectedRecord && (
-      <Stack spacing={3}>
-        {/* User Information */}
-        <Box>
-          <Typography variant="subtitle1" fontWeight="600" gutterBottom>
-            <PersonIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5 }} />
-            User Information
-          </Typography>
-          <Card variant="outlined" sx={{ p: 2 }}>
-            <Stack spacing={2}>
-              <Box>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  Name
-                </Typography>
-                <Typography variant="body1" fontWeight="600">
-                  {selectedRecord.fullName || 'Unknown User'}
-                </Typography>
-              </Box>
-              <Box>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  Email
-                </Typography>
-                <Typography variant="body1">
-                  {selectedRecord.userEmail || 'No email'}
-                </Typography>
-              </Box>
-            </Stack>
-          </Card>
-        </Box>
-
-        {/* Location Information */}
-        <Box>
-          <Typography variant="subtitle1" fontWeight="600" gutterBottom>
-            <LocationOnIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5 }} />
-            Location Information
-          </Typography>
-          <Card variant="outlined" sx={{ p: 2 }}>
-            <Typography variant="body1" fontWeight="600">
-              {selectedRecord.locationName || 'Unknown Location'}
-            </Typography>
-          </Card>
-        </Box>
-
-        {/* Planting Details */}
-        <Box>
-          <Typography variant="subtitle1" fontWeight="600" gutterBottom>
-            <ForestIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5, color: 'success.main' }} />
-            Planting Details
-          </Typography>
-          <Card variant="outlined" sx={{ p: 2, bgcolor: 'rgba(46, 125, 50, 0.05)' }}>
-            <Stack spacing={2}>
-              <Box>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  Tree Seedling
-                </Typography>
-                <Typography variant="body1" fontWeight="600">
-                  {selectedRecord.treeSeedlingName || selectedRecord.seedlingRef || 'Unknown Tree'}
-                </Typography>
-              </Box>
-              <Box>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  Planting Date
-                </Typography>
-                <Typography variant="body1" fontWeight="600">
-                  {selectedRecord.formatted_planting_date || 'N/A'}
-                </Typography>
-              </Box>
-              <Box>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  Request ID
-                </Typography>
-                <Typography variant="body1" fontWeight="600">
-                  {selectedRecord.requestId || 'N/A'}
-                </Typography>
-              </Box>
-              <Box>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  Status
-                </Typography>
-                <Chip
-                  label={selectedRecord.status || 'completed'}
-                  color="success"
-                  size="small"
-                  sx={{ fontWeight: 600 }}
-                />
-              </Box>
-              {selectedRecord.notes && (
+          <DialogContent dividers>
+            {selectedRecord && (
+              <Stack spacing={3}>
+                {/* User Information */}
                 <Box>
-                  <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
-                    Notes
+                  <Typography variant="subtitle1" fontWeight="600" gutterBottom>
+                    <PersonIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5 }} />
+                    Planter Information
                   </Typography>
-                  <Paper elevation={0} sx={{ p: 1.5, bgcolor: 'grey.50', borderRadius: 1 }}>
-                    <Typography variant="body2">
-                      {selectedRecord.notes}
-                    </Typography>
-                  </Paper>
+                  <Card variant="outlined" sx={{ p: 2 }}>
+                    <Stack spacing={2}>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          Name
+                        </Typography>
+                        <Typography variant="body1" fontWeight="600">
+                          {selectedRecord.fullName}
+                        </Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          Email
+                        </Typography>
+                        <Typography variant="body1">
+                          {selectedRecord.userEmail}
+                        </Typography>
+                      </Box>
+                    </Stack>
+                  </Card>
                 </Box>
-              )}
-            </Stack>
-          </Card>
-        </Box>
-      </Stack>
-    )}
-  </DialogContent>
 
-  <DialogActions sx={{ p: 2 }}>
-    <Button
-      variant="contained"
-      onClick={() => setRecordDialogOpen(false)}
-      startIcon={<CheckCircleIcon />}
-      sx={{
-        bgcolor: '#2e7d32',
-        '&:hover': { bgcolor: '#1b5e20' }
-      }}
-    >
-      View Full Details
-    </Button>
-    <Button onClick={() => setRecordDialogOpen(false)} variant="outlined">
-      Close
-    </Button>
-  </DialogActions>
-</Dialog>
+                {/* Location Information */}
+                <Box>
+                  <Typography variant="subtitle1" fontWeight="600" gutterBottom>
+                    <LocationOnIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5 }} />
+                    Location Information
+                  </Typography>
+                  <Card variant="outlined" sx={{ p: 2 }}>
+                    <Stack spacing={2}>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          Location Name
+                        </Typography>
+                        <Typography variant="body1" fontWeight="600">
+                          {selectedRecord.locationName}
+                        </Typography>
+                      </Box>
+                      {selectedRecord.locationData && (
+                        <>
+                          {selectedRecord.locationData.location_latitude && selectedRecord.locationData.location_longitude && (
+                            <Box>
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                Coordinates
+                              </Typography>
+                              <Typography variant="body2">
+                                {selectedRecord.locationData.location_latitude}, {selectedRecord.locationData.location_longitude}
+                              </Typography>
+                            </Box>
+                          )}
+                        </>
+                      )}
+                    </Stack>
+                  </Card>
+                </Box>
 
+                {/* Planting Details */}
+                <Box>
+                  <Typography variant="subtitle1" fontWeight="600" gutterBottom>
+                    <ForestIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5, color: 'success.main' }} />
+                    Planting Details
+                  </Typography>
+                  <Card variant="outlined" sx={{ p: 2, bgcolor: 'rgba(46, 125, 50, 0.05)' }}>
+                    <Stack spacing={2}>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          Tree Seedling
+                        </Typography>
+                        <Typography variant="body1" fontWeight="600">
+                          {selectedRecord.treeSeedlingName}
+                        </Typography>
+                        {selectedRecord.scientificName && (
+                          <Typography variant="body2" color="text.secondary" fontStyle="italic">
+                            {selectedRecord.scientificName}
+                          </Typography>
+                        )}
+                      </Box>
+                      
+                      {selectedRecord.seedlingCategory && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Category
+                          </Typography>
+                          <Chip 
+                            label={selectedRecord.seedlingCategory} 
+                            size="small" 
+                            variant="outlined"
+                          />
+                        </Box>
+                      )}
+                      
+                      {selectedRecord.successRate && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Success Rate
+                          </Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <LinearProgress 
+                              variant="determinate" 
+                              value={selectedRecord.successRate} 
+                              sx={{ flexGrow: 1, height: 8, borderRadius: 4 }}
+                              color={selectedRecord.successRate > 80 ? 'success' : selectedRecord.successRate > 60 ? 'warning' : 'error'}
+                            />
+                            <Typography variant="body2" fontWeight="600">
+                              {selectedRecord.successRate}%
+                            </Typography>
+                          </Box>
+                        </Box>
+                      )}
+
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          Planting Date
+                        </Typography>
+                        <Typography variant="body1" fontWeight="600">
+                          {selectedRecord.formatted_planting_date}
+                        </Typography>
+                      </Box>
+
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          Status
+                        </Typography>
+                        <Chip
+                          label={selectedRecord.status || 'completed'}
+                          color="success"
+                          size="small"
+                          sx={{ fontWeight: 600 }}
+                        />
+                      </Box>
+
+                      {selectedRecord.notes && selectedRecord.notes !== 'No notes' && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                            Planting Notes
+                          </Typography>
+                          <Paper elevation={0} sx={{ p: 1.5, bgcolor: 'grey.50', borderRadius: 1 }}>
+                            <Typography variant="body2">
+                              {selectedRecord.notes}
+                            </Typography>
+                          </Paper>
+                        </Box>
+                      )}
+                    </Stack>
+                  </Card>
+                </Box>
+
+                {/* Task Information */}
+                {selectedRecord.taskStatus && (
+                  <Box>
+                    <Typography variant="subtitle1" fontWeight="600" gutterBottom>
+                      <AssignmentIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5 }} />
+                      Task Information
+                    </Typography>
+                    <Card variant="outlined" sx={{ p: 2 }}>
+                      <Stack spacing={2}>
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Task Status
+                          </Typography>
+                          <Chip 
+                            label={selectedRecord.taskStatus} 
+                            color={selectedRecord.taskStatus === 'Assigned' ? 'primary' : 'default'}
+                            size="small"
+                          />
+                        </Box>
+                        {selectedRecord.recommendedSeedlings && selectedRecord.recommendedSeedlings.length > 0 && (
+                          <Box>
+                            <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+                              All Recommended Seedlings ({selectedRecord.recommendedSeedlings.length})
+                            </Typography>
+                            <Stack spacing={1}>
+                              {selectedRecord.recommendedSeedlings.map((seedling, index) => (
+                                <Chip
+                                  key={index}
+                                  label={`${seedling.seedling_commonName} (${seedling.seedling_successRate}%)`}
+                                  variant={seedling.seedling_commonName === selectedRecord.treeSeedlingName ? "filled" : "outlined"}
+                                  color={seedling.seedling_commonName === selectedRecord.treeSeedlingName ? "success" : "default"}
+                                  size="small"
+                                />
+                              ))}
+                            </Stack>
+                          </Box>
+                        )}
+                      </Stack>
+                    </Card>
+                  </Box>
+                )}
+              </Stack>
+            )}
+          </DialogContent>
+
+          <DialogActions sx={{ p: 2 }}>
+            <Button
+              variant="contained"
+              onClick={() => setRecordDialogOpen(false)}
+              startIcon={<CheckCircleIcon />}
+              sx={{
+                bgcolor: '#2e7d32',
+                '&:hover': { bgcolor: '#1b5e20' }
+              }}
+            >
+              Close
+            </Button>
+          </DialogActions>
+        </Dialog>
 
         {/* Notification Dialog */}
         <Dialog open={notificationDialogOpen} onClose={() => setNotificationDialogOpen(false)} maxWidth="sm" fullWidth>
