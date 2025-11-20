@@ -1,4 +1,4 @@
-// src/pages/Task.js - UPDATED WITH SIZE CHANGES
+// src/pages/Task.js - COMPLETE UPDATED CODE WITH updatedAt TIMESTAMP
 import React, { useState, useEffect } from 'react';
 import {
   Box, Typography, Paper, Button, Dialog, DialogTitle,
@@ -52,22 +52,31 @@ const SeedlingAssignmentPage = () => {
 
   const handleDrawerToggle = () => setMobileOpen(!mobileOpen);
 
-  // Convert timestamp helper function
+  // Enhanced convertTimestamp helper function
   const convertTimestamp = (timestamp) => {
     if (!timestamp) return null;
-    if (timestamp.toDate && typeof timestamp.toDate === 'function') {
-      return timestamp.toDate();
+    
+    try {
+      if (timestamp.toDate && typeof timestamp.toDate === 'function') {
+        return timestamp.toDate();
+      }
+      if (timestamp._seconds !== undefined) {
+        return new Date(timestamp._seconds * 1000 + (timestamp._nanoseconds || 0) / 1000000);
+      }
+      if (timestamp.seconds !== undefined) {
+        return new Date(timestamp.seconds * 1000 + (timestamp.nanoseconds || 0) / 1000000);
+      }
+      if (timestamp instanceof Date) {
+        return timestamp;
+      }
+      if (typeof timestamp === 'string') {
+        return new Date(timestamp);
+      }
+      return null;
+    } catch (error) {
+      console.error('Error converting timestamp:', error);
+      return null;
     }
-    if (timestamp.seconds !== undefined) {
-      return new Date(timestamp.seconds * 1000);
-    }
-    if (timestamp instanceof Date) {
-      return timestamp;
-    }
-    if (typeof timestamp === 'string') {
-      return new Date(timestamp);
-    }
-    return null;
   };
 
   // Check if request is assigned using plantingTasks
@@ -261,7 +270,8 @@ const SeedlingAssignmentPage = () => {
               status: request.request_status,
               request_date: request.request_date,
               preferred_date: request.preferred_date,
-              reviewedAt: convertTimestamp(request.reviewedAt)
+              reviewedAt: convertTimestamp(request.reviewedAt),
+              updatedAt: convertTimestamp(request.updatedAt)
             };
           })
         );
@@ -379,7 +389,7 @@ const SeedlingAssignmentPage = () => {
     setAssignDialogOpen(true);
   };
   
-  // Confirm seedling assignment
+  // Confirm seedling assignment with updatedAt timestamp - COMPLETE CORRECTED VERSION
   const handleConfirmAssignment = async () => {
     try {
       if (!selectedRequest || !currentRecommendation) return;
@@ -594,28 +604,56 @@ const SeedlingAssignmentPage = () => {
 
       console.log('✅ Task assignment complete');
 
-      // Update the planting request status to 'assigned_seedlings'
-      try {
-        await apiService.updatePlantingRequest(selectedRequest.id, {
-          request_status: 'assigned_seedlings',
-          assigned_at: new Date().toISOString(),
-          assigned_by: user.id
-        });
-        console.log('✅ Updated planting request status to assigned_seedlings');
-      } catch (updateError) {
-        console.warn('⚠️ Could not update planting request status:', updateError.message);
-        // Don't fail the whole operation if this fails
+      // UPDATED SECTION: Update the planting request status to 'assigned_seedlings' with updatedAt timestamp
+    try {
+      const currentTimestamp = new Date().toISOString();
+      const updateData = {
+        request_status: 'assigned_seedlings',
+        assigned_at: currentTimestamp,
+        assigned_by: user.id,
+        updatedAt: currentTimestamp
+      };
+      
+      console.log('🔄 Updating planting request:', selectedRequest.id);
+      console.log('📝 Update data:', updateData);
+      
+      const updateResult = await apiService.updatePlantingRequest(selectedRequest.id, updateData);
+      console.log('✅ Planting request update result:', updateResult);
+      
+      if (!updateResult.success) {
+        throw new Error(updateResult.error || 'Failed to update planting request');
       }
+      
+      console.log('✅ Updated planting request status to assigned_seedlings with updatedAt timestamp');
+    } catch (updateError) {
+      console.error('❌ Error updating planting request status:', updateError);
+      setAlert({ 
+        open: true, 
+        message: `Failed to update request status: ${updateError.message}`, 
+        severity: 'error' 
+      });
+      return; // Stop the process if this fails
+    }
 
-      // Create notification with proper Firestore format
-      await createSeedlingAssignmentNotification(selectedRequest, seedlingsToAssign[0]);
+    // Create notification with proper Firestore format
+    await createSeedlingAssignmentNotification(selectedRequest, seedlingsToAssign[0]);
 
+    // IMPORTANT: Force refresh all data to reflect the changes
+    setLoading(true);
+    
+    try {
       // Refresh planting tasks data
       const updatedTasks = await apiService.getPlantingTasks();
       setPlantingTasks(updatedTasks);
 
-      // Refresh planting requests and filter out assigned ones
+      // Force clear cache and refresh planting requests
+      apiService.clearAllCache();
+      
+      // Fetch fresh planting requests data
       const updatedRequests = await apiService.getPlantingRequests();
+      console.log('🔄 Refreshed planting requests:', updatedRequests.length);
+      
+      // Filter for approved/pending requests and enrich with user email
       const filteredRequests = updatedRequests.filter(request => 
         request.request_status === 'approved' || 
         request.request_status === 'pending'
@@ -633,25 +671,35 @@ const SeedlingAssignmentPage = () => {
             status: request.request_status,
             request_date: request.request_date,
             preferred_date: request.preferred_date,
-            reviewedAt: convertTimestamp(request.reviewedAt)
+            reviewedAt: convertTimestamp(request.reviewedAt),
+            updatedAt: convertTimestamp(request.updatedAt)
           };
         })
       );
 
       setPlantingRequests(enrichedRequests);
+      console.log('✅ Updated planting requests state with', enrichedRequests.length, 'requests');
 
-      setAssignDialogOpen(false);
-      setSelectedRequest(null);
-      setAlert({ 
-        open: true, 
-        message: `${seedlingsToAssign.length} seedling(s) assigned to ${selectedRequest.fullName} successfully! Request removed from pending list.`, 
-        severity: 'success' 
-      });
-    } catch (err) {
-      console.error('❌ Error assigning seedling:', err);
-      setAlert({ open: true, message: err.message, severity: 'error' });
+    } catch (refreshError) {
+      console.error('❌ Error refreshing data:', refreshError);
+      // Continue anyway - the update was successful
+    } finally {
+      setLoading(false);
     }
-  };
+
+    setAssignDialogOpen(false);
+    setSelectedRequest(null);
+    setAlert({ 
+      open: true, 
+      message: `${seedlingsToAssign.length} seedling(s) assigned to ${selectedRequest.fullName} successfully! Request removed from pending list.`, 
+      severity: 'success' 
+    });
+  } catch (err) {
+    console.error('❌ Error assigning seedling:', err);
+    setAlert({ open: true, message: err.message, severity: 'error' });
+    setLoading(false);
+  }
+};
 
   // Handle view request details
   const handleViewRequest = (request) => {
@@ -687,6 +735,28 @@ const SeedlingAssignmentPage = () => {
       return String(date);
     } catch (error) {
       return 'Invalid Date';
+    }
+  };
+
+  // Format timestamp for detailed display
+  const formatTimestamp = (timestamp) => {
+    if (!timestamp) return 'N/A';
+    
+    try {
+      const date = convertTimestamp(timestamp);
+      if (!date) return 'N/A';
+      
+      return date.toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        timeZoneName: 'short'
+      });
+    } catch (error) {
+      return 'Invalid Timestamp';
     }
   };
 
@@ -833,6 +903,11 @@ const SeedlingAssignmentPage = () => {
                 <Typography variant="body2" fontWeight="600">
                   ✓ Assigned: {assignedSeedling.seedling_commonName}
                 </Typography>
+                {request.updatedAt && (
+                  <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+                    Last updated: {formatTimestamp(request.updatedAt)}
+                  </Typography>
+                )}
               </Alert>
             ) : (
               <Alert 
@@ -912,298 +987,297 @@ const SeedlingAssignmentPage = () => {
           )}
 
           {/* COMPACT GREEN BACKGROUND DESIGN */}
-<Paper 
-  elevation={0}
-  sx={{
-    background: '#2e7d32',
-    borderRadius: 2,
-    boxShadow: '0 2px 12px rgba(46, 125, 50, 0.3)',
-    overflow: 'hidden',
-    mb: 3,
-    color: 'white'
-  }}
->
-  <Box sx={{ p: 3 }}>
-    <Grid container spacing={3} alignItems="center">
-      {/* Left Content */}
-      <Grid item xs={12} lg={8}>
-        <Stack spacing={2.5}>
-          
-          {/* Header */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <Box sx={{
-              bgcolor: 'rgba(255,255,255,0.2)',
-              p: 1,
-              borderRadius: 1.5,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              backdropFilter: 'blur(10px)'
-            }}>
-              <TreeIcon sx={{ fontSize: 20, color: 'white' }} />
-            </Box>
-            <Box>
-              <Typography variant="overline" sx={{
-                color: 'rgba(255,255,255,0.9)',
-                fontSize: '0.7rem',
-                letterSpacing: 1.2,
-                fontWeight: 600,
-                display: 'block',
-                mb: 0.25
-              }}>
-                {currentRecommendation ? 'ACTIVE RECOMMENDATION' : 'READY TO ASSIGN'}
-              </Typography>
-              <Typography variant="h6" fontWeight="700" color="white">
-                {currentRecommendation ? 'Optimal Planting Species' : 'Select Recommendation'}
-              </Typography>
-            </Box>
-          </Box>
-
-          {currentRecommendation && seedlings.length > 0 ? (
-            <>
-              {/* --- UPDATED SPECIES SECTION (OPTION A) --- */}
-              <Box>
-                <Typography variant="caption" sx={{
-                  color: 'rgba(255,255,255,0.9)',
-                  textTransform: 'uppercase',
-                  letterSpacing: 0.8,
-                  display: 'block',
-                  mb: 1.5,
-                  fontSize: '0.75rem',
-                  fontWeight: 600
-                }}>
-                  Recommended Species
-                </Typography>
-
-                <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
-                  {seedlings.map((seedling) => (
-                    <Box
-                      key={seedling.id}
-                      sx={{
-                        px: 2.5,
-                        py: 1.2,
-                        bgcolor: 'rgba(255,255,255,0.18)',
-                        borderRadius: 3,
-                        color: 'white',
-                        fontWeight: 700,
-                        fontSize: '1rem',
+          <Paper 
+            elevation={0}
+            sx={{
+              background: '#2e7d32',
+              borderRadius: 2,
+              boxShadow: '0 2px 12px rgba(46, 125, 50, 0.3)',
+              overflow: 'hidden',
+              mb: 3,
+              color: 'white'
+            }}
+          >
+            <Box sx={{ p: 3 }}>
+              <Grid container spacing={3} alignItems="center">
+                {/* Left Content */}
+                <Grid item xs={12} lg={8}>
+                  <Stack spacing={2.5}>
+                    
+                    {/* Header */}
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      <Box sx={{
+                        bgcolor: 'rgba(255,255,255,0.2)',
+                        p: 1,
+                        borderRadius: 1.5,
                         display: 'flex',
                         alignItems: 'center',
-                        gap: 1.2,
-                        backdropFilter: 'blur(8px)',
-                        border: '1px solid rgba(255,255,255,0.28)',
-                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
-                      }}
-                    >
-                      <TreeIcon sx={{ fontSize: 22, opacity: 0.95 }} />
-                      {seedling.seedling_commonName}
+                        justifyContent: 'center',
+                        backdropFilter: 'blur(10px)'
+                      }}>
+                        <TreeIcon sx={{ fontSize: 20, color: 'white' }} />
+                      </Box>
+                      <Box>
+                        <Typography variant="overline" sx={{
+                          color: 'rgba(255,255,255,0.9)',
+                          fontSize: '0.7rem',
+                          letterSpacing: 1.2,
+                          fontWeight: 600,
+                          display: 'block',
+                          mb: 0.25
+                        }}>
+                          {currentRecommendation ? 'ACTIVE RECOMMENDATION' : 'READY TO ASSIGN'}
+                        </Typography>
+                        <Typography variant="h6" fontWeight="700" color="white">
+                          {currentRecommendation ? 'Optimal Planting Species' : 'Select Recommendation'}
+                        </Typography>
+                      </Box>
                     </Box>
-                  ))}
-                </Stack>
-              </Box>
 
-              {/* Location & Details */}
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, flexWrap: 'wrap' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <LocationIcon sx={{ fontSize: 18, color: 'rgba(255,255,255,0.9)' }} />
-                  <Box>
-                    <Typography variant="caption" sx={{ 
-                      color: 'rgba(255,255,255,0.8)', 
-                      display: 'block',
-                      mb: 0.25,
-                      fontSize: '0.7rem',
-                      fontWeight: 600
-                    }}>
-                      Location
-                    </Typography>
-                    <Typography variant="body1" fontWeight="600" color="white" sx={{ fontSize: '1rem' }}>
-                      {recommendationLocation}
-                    </Typography>
-                  </Box>
-                </Box>
+                    {currentRecommendation && seedlings.length > 0 ? (
+                      <>
+                        {/* Species Section */}
+                        <Box>
+                          <Typography variant="caption" sx={{
+                            color: 'rgba(255,255,255,0.9)',
+                            textTransform: 'uppercase',
+                            letterSpacing: 0.8,
+                            display: 'block',
+                            mb: 1.5,
+                            fontSize: '0.75rem',
+                            fontWeight: 600
+                          }}>
+                            Recommended Species
+                          </Typography>
 
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <CalendarIcon sx={{ fontSize: 18, color: 'rgba(255,255,255,0.9)' }} />
-                  <Box>
-                    <Typography variant="caption" sx={{ 
-                      color: 'rgba(255,255,255,0.8)', 
-                      display: 'block',
-                      mb: 0.25,
-                      fontSize: '0.7rem',
-                      fontWeight: 600
-                    }}>
-                      Best Season
-                    </Typography>
-                    <Typography variant="body1" fontWeight="600" color="white" sx={{ fontSize: '1rem' }}>
-                      Year-round
-                    </Typography>
+                          <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
+                            {seedlings.map((seedling) => (
+                              <Box
+                                key={seedling.id}
+                                sx={{
+                                  px: 2.5,
+                                  py: 1.2,
+                                  bgcolor: 'rgba(255,255,255,0.18)',
+                                  borderRadius: 3,
+                                  color: 'white',
+                                  fontWeight: 700,
+                                  fontSize: '1rem',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 1.2,
+                                  backdropFilter: 'blur(8px)',
+                                  border: '1px solid rgba(255,255,255,0.28)',
+                                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                                }}
+                              >
+                                <TreeIcon sx={{ fontSize: 22, opacity: 0.95 }} />
+                                {seedling.seedling_commonName}
+                              </Box>
+                            ))}
+                          </Stack>
+                        </Box>
+
+                        {/* Location & Details */}
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, flexWrap: 'wrap' }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <LocationIcon sx={{ fontSize: 18, color: 'rgba(255,255,255,0.9)' }} />
+                            <Box>
+                              <Typography variant="caption" sx={{ 
+                                color: 'rgba(255,255,255,0.8)', 
+                                display: 'block',
+                                mb: 0.25,
+                                fontSize: '0.7rem',
+                                fontWeight: 600
+                              }}>
+                                Location
+                              </Typography>
+                              <Typography variant="body1" fontWeight="600" color="white" sx={{ fontSize: '1rem' }}>
+                                {recommendationLocation}
+                              </Typography>
+                            </Box>
+                          </Box>
+
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <CalendarIcon sx={{ fontSize: 18, color: 'rgba(255,255,255,0.9)' }} />
+                            <Box>
+                              <Typography variant="caption" sx={{ 
+                                color: 'rgba(255,255,255,0.8)', 
+                                display: 'block',
+                                mb: 0.25,
+                                fontSize: '0.7rem',
+                                fontWeight: 600
+                              }}>
+                                Best Season
+                              </Typography>
+                              <Typography variant="body1" fontWeight="600" color="white" sx={{ fontSize: '1rem' }}>
+                                Year-round
+                              </Typography>
+                            </Box>
+                          </Box>
+                        </Box>
+                      </>
+                    ) : (
+                      /* Empty State */
+                      <Box sx={{ textAlign: 'center', py: 1 }}>
+                        <Box sx={{
+                          bgcolor: 'rgba(255,255,255,0.2)',
+                          width: 60,
+                          height: 60,
+                          borderRadius: '50%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          mx: 'auto',
+                          mb: 1.5,
+                          backdropFilter: 'blur(10px)'
+                        }}>
+                          <TreeIcon sx={{ fontSize: 30, color: 'white' }} />
+                        </Box>
+                        <Typography variant="body1" color="white" gutterBottom sx={{ fontSize: '1rem', fontWeight: 600 }}>
+                          No Active Recommendation
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)', mb: 2, fontSize: '0.8rem' }}>
+                          Select a recommendation to start assigning seedlings
+                        </Typography>
+                      </Box>
+                    )}
+                  </Stack>
+                </Grid>
+
+                {/* Right Content - Confidence Score */}
+                <Grid item xs={12} lg={4}>
+                  <Box sx={{ 
+                    textAlign: 'center',
+                    bgcolor: 'rgba(255,255,255,0.1)',
+                    borderRadius: 1.5,
+                    p: 2.5,
+                    backdropFilter: 'blur(15px)',
+                    border: '1px solid rgba(255,255,255,0.2)'
+                  }}>
+                    {currentRecommendation ? (
+                      <>
+                        <Typography variant="caption" sx={{
+                          color: 'rgba(255,255,255,0.9)',
+                          letterSpacing: 1.2,
+                          display: 'block',
+                          mb: 1.5,
+                          fontSize: '0.7rem',
+                          fontWeight: 600
+                        }}>
+                          CONFIDENCE SCORE
+                        </Typography>
+                        
+                        <Box sx={{ my: 2 }}>
+                          <Typography variant="h3" fontWeight="800" sx={{
+                            fontSize: { xs: '2.5rem', md: '3rem' },
+                            lineHeight: 1,
+                            mb: 1.5,
+                            color: 'white',
+                            textShadow: '0 2px 8px rgba(0,0,0,0.3)'
+                          }}>
+                            {currentRecommendation.reco_confidenceScore}%
+                          </Typography>
+                          
+                          <LinearProgress 
+                            variant="determinate" 
+                            value={currentRecommendation.reco_confidenceScore}
+                            sx={{
+                              height: 6,
+                              borderRadius: 3,
+                              bgcolor: 'rgba(255,255,255,0.2)',
+                              '& .MuiLinearProgress-bar': {
+                                bgcolor: 'white',
+                                borderRadius: 3
+                              }
+                            }}
+                          />
+                        </Box>
+
+                        <Typography variant="caption" sx={{ 
+                          color: 'rgba(255,255,255,0.9)',
+                          fontStyle: 'italic',
+                          mb: 2,
+                          fontSize: '0.75rem'
+                        }}>
+                          High confidence for optimal growth
+                        </Typography>
+
+                        <Button
+                          variant="contained"
+                          startIcon={<EditIcon />}
+                          onClick={() => navigate('/recommendations')}
+                          sx={{
+                            bgcolor: 'white',
+                            color: '#2e7d32',
+                            fontWeight: 600,
+                            py: 1,
+                            borderRadius: 1.5,
+                            width: '100%',
+                            fontSize: '0.85rem',
+                            transition: 'all 0.2s ease',
+                            '&:hover': {
+                              bgcolor: 'rgba(255,255,255,0.95)',
+                              transform: 'translateY(-1px)'
+                            }
+                          }}
+                        >
+                          Change Selection
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Box sx={{
+                          bgcolor: 'rgba(255,255,255,0.2)',
+                          width: 50,
+                          height: 50,
+                          borderRadius: '50%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          mx: 'auto',
+                          mb: 1.5,
+                          backdropFilter: 'blur(10px)'
+                        }}>
+                          <TreeIcon sx={{ fontSize: 24, color: 'white' }} />
+                        </Box>
+                        
+                        <Typography variant="body1" fontWeight="600" gutterBottom sx={{ fontSize: '0.9rem' }}>
+                          Get Started
+                        </Typography>
+                        
+                        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.9)', mb: 2, fontSize: '0.75rem' }}>
+                          Choose a recommendation to begin
+                        </Typography>
+
+                        <Button
+                          variant="contained"
+                          startIcon={<TreeIcon />}
+                          onClick={() => navigate('/recommendations')}
+                          sx={{
+                            bgcolor: 'white',
+                            color: '#2e7d32',
+                            fontWeight: 600,
+                            py: 1,
+                            borderRadius: 1.5,
+                            width: '100%',
+                            fontSize: '0.85rem',
+                            transition: 'all 0.2s ease',
+                            '&:hover': {
+                              bgcolor: 'rgba(255,255,255,0.95)',
+                              transform: 'translateY(-1px)'
+                            }
+                          }}
+                        >
+                          Select Recommendation
+                        </Button>
+                      </>
+                    )}
                   </Box>
-                </Box>
-              </Box>
-            </>
-          ) : (
-            /* Empty State */
-            <Box sx={{ textAlign: 'center', py: 1 }}>
-              <Box sx={{
-                bgcolor: 'rgba(255,255,255,0.2)',
-                width: 60,
-                height: 60,
-                borderRadius: '50%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                mx: 'auto',
-                mb: 1.5,
-                backdropFilter: 'blur(10px)'
-              }}>
-                <TreeIcon sx={{ fontSize: 30, color: 'white' }} />
-              </Box>
-              <Typography variant="body1" color="white" gutterBottom sx={{ fontSize: '1rem', fontWeight: 600 }}>
-                No Active Recommendation
-              </Typography>
-              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)', mb: 2, fontSize: '0.8rem' }}>
-                Select a recommendation to start assigning seedlings
-              </Typography>
+                </Grid>
+              </Grid>
             </Box>
-          )}
-        </Stack>
-      </Grid>
+          </Paper>
 
-      {/* Right Content - Confidence Score */}
-      <Grid item xs={12} lg={4}>
-        <Box sx={{ 
-          textAlign: 'center',
-          bgcolor: 'rgba(255,255,255,0.1)',
-          borderRadius: 1.5,
-          p: 2.5,
-          backdropFilter: 'blur(15px)',
-          border: '1px solid rgba(255,255,255,0.2)'
-        }}>
-          {currentRecommendation ? (
-            <>
-              <Typography variant="caption" sx={{
-                color: 'rgba(255,255,255,0.9)',
-                letterSpacing: 1.2,
-                display: 'block',
-                mb: 1.5,
-                fontSize: '0.7rem',
-                fontWeight: 600
-              }}>
-                CONFIDENCE SCORE
-              </Typography>
-              
-              <Box sx={{ my: 2 }}>
-                <Typography variant="h3" fontWeight="800" sx={{
-                  fontSize: { xs: '2.5rem', md: '3rem' },
-                  lineHeight: 1,
-                  mb: 1.5,
-                  color: 'white',
-                  textShadow: '0 2px 8px rgba(0,0,0,0.3)'
-                }}>
-                  {currentRecommendation.reco_confidenceScore}%
-                </Typography>
-                
-                <LinearProgress 
-                  variant="determinate" 
-                  value={currentRecommendation.reco_confidenceScore}
-                  sx={{
-                    height: 6,
-                    borderRadius: 3,
-                    bgcolor: 'rgba(255,255,255,0.2)',
-                    '& .MuiLinearProgress-bar': {
-                      bgcolor: 'white',
-                      borderRadius: 3
-                    }
-                  }}
-                />
-              </Box>
-
-              <Typography variant="caption" sx={{ 
-                color: 'rgba(255,255,255,0.9)',
-                fontStyle: 'italic',
-                mb: 2,
-                fontSize: '0.75rem'
-              }}>
-                High confidence for optimal growth
-              </Typography>
-
-              <Button
-                variant="contained"
-                startIcon={<EditIcon />}
-                onClick={() => navigate('/recommendations')}
-                sx={{
-                  bgcolor: 'white',
-                  color: '#2e7d32',
-                  fontWeight: 600,
-                  py: 1,
-                  borderRadius: 1.5,
-                  width: '100%',
-                  fontSize: '0.85rem',
-                  transition: 'all 0.2s ease',
-                  '&:hover': {
-                    bgcolor: 'rgba(255,255,255,0.95)',
-                    transform: 'translateY(-1px)'
-                  }
-                }}
-              >
-                Change Selection
-              </Button>
-            </>
-          ) : (
-            <>
-              <Box sx={{
-                bgcolor: 'rgba(255,255,255,0.2)',
-                width: 50,
-                height: 50,
-                borderRadius: '50%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                mx: 'auto',
-                mb: 1.5,
-                backdropFilter: 'blur(10px)'
-              }}>
-                <TreeIcon sx={{ fontSize: 24, color: 'white' }} />
-              </Box>
-              
-              <Typography variant="body1" fontWeight="600" gutterBottom sx={{ fontSize: '0.9rem' }}>
-                Get Started
-              </Typography>
-              
-              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.9)', mb: 2, fontSize: '0.75rem' }}>
-                Choose a recommendation to begin
-              </Typography>
-
-              <Button
-                variant="contained"
-                startIcon={<TreeIcon />}
-                onClick={() => navigate('/recommendations')}
-                sx={{
-                  bgcolor: 'white',
-                  color: '#2e7d32',
-                  fontWeight: 600,
-                  py: 1,
-                  borderRadius: 1.5,
-                  width: '100%',
-                  fontSize: '0.85rem',
-                  transition: 'all 0.2s ease',
-                  '&:hover': {
-                    bgcolor: 'rgba(255,255,255,0.95)',
-                    transform: 'translateY(-1px)'
-                  }
-                }}
-              >
-                Select Recommendation
-              </Button>
-            </>
-          )}
-        </Box>
-      </Grid>
-    </Grid>
-  </Box>
-</Paper>
-
-          
           {/* Main Content */}
           <Box sx={{ width: '100%' }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
@@ -1383,7 +1457,7 @@ const SeedlingAssignmentPage = () => {
                   )}
                 </Paper>
 
-                {/* Seedling Assignment - UPDATED TO SHOW ALL 3 SEEDLINGS */}
+                {/* Seedling Assignment */}
                 {(() => {
                   const recommendedSeedlings = getRecommendedSeedlings();
                   
@@ -1668,6 +1742,17 @@ const SeedlingAssignmentPage = () => {
                               {selectedRequest.request_notes}
                             </Typography>
                           </Paper>
+                        </Box>
+                      )}
+                      {/* Updated At Timestamp Display */}
+                      {selectedRequest.updatedAt && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                            Last Updated
+                          </Typography>
+                          <Typography variant="body2" fontWeight="600">
+                            {formatTimestamp(selectedRequest.updatedAt)}
+                          </Typography>
                         </Box>
                       )}
                     </Stack>
