@@ -510,7 +510,7 @@ const fetchPlantingRecords = async (plantingRequests) => {
     return enrichedRecords;
   } catch (error) {
     console.error('Fetch planting records failed:', error.message);
-    return [];
+    return [];  
   }
 };
 // =============================================================================
@@ -1471,48 +1471,6 @@ const NotificationPanel = () => {
                     </Stack>
                   </Card>
                 </Box>
-
-                {/* Task Information */}
-                {selectedRecord.taskStatus && (
-                  <Box>
-                    <Typography variant="subtitle1" fontWeight="600" gutterBottom>
-                      <AssignmentIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5 }} />
-                      Task Information
-                    </Typography>
-                    <Card variant="outlined" sx={{ p: 2 }}>
-                      <Stack spacing={2}>
-                        <Box>
-                          <Typography variant="caption" color="text.secondary" display="block">
-                            Task Status
-                          </Typography>
-                          <Chip 
-                            label={selectedRecord.taskStatus} 
-                            color={selectedRecord.taskStatus === 'Assigned' ? 'primary' : 'default'}
-                            size="small"
-                          />
-                        </Box>
-                        {selectedRecord.recommendedSeedlings && selectedRecord.recommendedSeedlings.length > 0 && (
-                          <Box>
-                            <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
-                              All Recommended Seedlings ({selectedRecord.recommendedSeedlings.length})
-                            </Typography>
-                            <Stack spacing={1}>
-                              {selectedRecord.recommendedSeedlings.map((seedling, index) => (
-                                <Chip
-                                  key={index}
-                                  label={`${seedling.seedling_commonName} (${seedling.seedling_successRate}%)`}
-                                  variant={seedling.seedling_commonName === selectedRecord.treeSeedlingName ? "filled" : "outlined"}
-                                  color={seedling.seedling_commonName === selectedRecord.treeSeedlingName ? "success" : "default"}
-                                  size="small"
-                                />
-                              ))}
-                            </Stack>
-                          </Box>
-                        )}
-                      </Stack>
-                    </Card>
-                  </Box>
-                )}
               </Stack>
             )}
           </DialogContent>
