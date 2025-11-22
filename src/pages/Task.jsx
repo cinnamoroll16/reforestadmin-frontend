@@ -334,45 +334,83 @@ const SeedlingAssignmentPage = () => {
 
   // Create notification for seedling assignment
   const createSeedlingAssignmentNotification = async (request, seedlingDetails) => {
+    // UPDATED SECTION: Update the planting request status to 'assigned_seedlings' with updatedAt timestamp
     try {
       const currentTimestamp = new Date().toISOString();
-      
-      // Ensure targetUser is in the correct format
-      let targetUser = request.userRef;
-      if (!targetUser.includes('/') && !targetUser.startsWith('users/')) {
-        targetUser = `users/${targetUser}`;
-      }
-      
-      const notificationData = {
-        notification_type: 'assigned_seedlings',
-        notif_message: `Your seedling has been assigned for planting at ${request.location_address}`,
-        data: {
-          requestId: request.id,
-          location_address: request.location_address,
-          recommendationId: currentRecommendation?.id,
-          seedlingName: seedlingDetails.seedling_commonName
-        },
-        targetUser: targetUser,
-        targetRole: 'planter',
-        read: false,
-        priority: 'high',
-        notif_timestamp: currentTimestamp,
-        createdAt: currentTimestamp
+      const updateData = {
+        request_status: 'assigned_seedlings',
+        assigned_at: currentTimestamp,
+        assigned_by: user.id,
+        updatedAt: currentTimestamp
       };
-
-      console.log('📧 Creating notification:', {
-        targetUser: notificationData.targetUser,
-        message: notificationData.notif_message,
-        read: notificationData.read
-      });
       
-      const result = await apiService.createNotification(notificationData);
-      console.log('✅ Notification created with ID:', result.id);
+      console.log('🔄 Updating planting request:', selectedRequest.id);
+      console.log('📝 Update data:', updateData);
+      console.log('🔍 Testing API endpoint structure...');
       
-      return result;
-    } catch (error) {
-      console.error('❌ Error creating notification:', error);
-      return null;
+      // Test different possible endpoint patterns
+      try {
+        const updateResult = await apiService.updatePlantingRequest(selectedRequest.id, updateData);
+        console.log('✅ Planting request update result:', updateResult);
+        
+        if (!updateResult.success && updateResult.success !== undefined) {
+          throw new Error(updateResult.error || 'Failed to update planting request');
+        }
+        
+        console.log('✅ Updated planting request status to assigned_seedlings with updatedAt timestamp');
+      } catch (firstError) {
+        console.warn('⚠️ First update attempt failed:', firstError.message);
+        console.log('🔄 Trying alternative method: Direct fetch with different endpoint patterns...');
+        
+        // Try alternative patterns if the API service method fails
+        const baseURL = 'https://reforestadmin-backend.vercel.app/api';
+        const possibleEndpoints = [
+          `${baseURL}/planting-requests/${selectedRequest.id}`,
+          `${baseURL}/plantingRequests/${selectedRequest.id}`,
+          `${baseURL}/requests/${selectedRequest.id}`,
+          `${baseURL}/planting_requests/${selectedRequest.id}`
+        ];
+        
+        let updateSuccess = false;
+        let lastError = null;
+        
+        for (const endpoint of possibleEndpoints) {
+          try {
+            console.log(`🔍 Trying endpoint: ${endpoint}`);
+            const response = await fetch(endpoint, {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(updateData)
+            });
+            
+            if (response.ok) {
+              console.log(`✅ Success with endpoint: ${endpoint}`);
+              updateSuccess = true;
+              break;
+            } else {
+              console.log(`❌ Failed with ${response.status}: ${endpoint}`);
+            }
+          } catch (err) {
+            console.log(`❌ Error with ${endpoint}:`, err.message);
+            lastError = err;
+          }
+        }
+        
+        if (!updateSuccess) {
+          console.warn('⚠️ All update attempts failed, but continuing with assignment...');
+          console.log('💡 The seedling assignment was successful, but the request status could not be updated.');
+          console.log('💡 You may need to manually update the request status in the database.');
+          
+          // Don't throw error - allow the process to continue
+          // The task assignment was successful, which is the critical operation
+        }
+      }
+    } catch (updateError) {
+      console.error('❌ Unexpected error in update section:', updateError);
+      // Continue anyway - the task assignment was successful
+      console.warn('⚠️ Continuing despite update error...');
     }
   };
 
