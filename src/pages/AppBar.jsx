@@ -69,10 +69,10 @@ function ReForestAppBar({ handleDrawerToggle, user, onLogout }) {
         return 'Planting Requests';
       default:
         // Handle nested routes
-        if (path.startsWith('/tasks/')) {
+        if (path.startsWith('/task/')) {
           return 'Assign Seedlings';
         }
-        if (path.startsWith('/recommendations/')) {
+        if (path.startsWith('/recommendation/')) {
           return 'Recommendation Details';
         }
         return 'ReForest';
