@@ -1,4 +1,4 @@
-// src/context/AuthContext.js
+// src/context/AuthContext.js - COMPLETE FIXED VERSION
 import { useState, createContext, useContext, useEffect } from 'react';
 import { apiService } from '../services/api';
 
@@ -59,10 +59,8 @@ export const AuthProvider = ({ children }) => {
 
       console.log('🔐 Attempting login for:', email);
 
-      const response = await apiService.login({
-        email: email.toLowerCase().trim(),
-        password: password,
-      });
+      // ✅ Pass email and password as separate parameters, not as an object
+      const response = await apiService.login(email, password);
 
       if (!response.user) {
         throw new Error('Invalid response from server: missing user data');
@@ -102,7 +100,7 @@ export const AuthProvider = ({ children }) => {
         errorMessage = 'Invalid email or password. Please try again.';
       } else if (errorMessage.includes('user not found')) {
         errorMessage = 'No account found with this email address.';
-      } else if (errorMessage.includes('network') || errorMessage.includes('CORS')) {
+      } else if (errorMessage.includes('network') || errorMessage.includes('CORS') || errorMessage.includes('Failed to fetch')) {
         errorMessage = 'Cannot connect to server. Please check your internet connection.';
       } else if (errorMessage.includes('too many requests')) {
         errorMessage = 'Too many login attempts. Please try again later.';
@@ -133,17 +131,8 @@ export const AuthProvider = ({ children }) => {
 
       console.log('👤 Attempting registration for:', userData.email);
 
-      const response = await apiService.register({
-        email: userData.email.toLowerCase().trim(),
-        password: userData.password,
-        firstName: userData.firstName?.trim(),
-        lastName: userData.lastName?.trim(),
-        role: userData.role || 'user',
-        phone: userData.phone,
-        organization: userData.organization,
-        designation: userData.designation,
-        department: userData.department,
-      });
+      // ✅ Pass the userData object directly to apiService.register
+      const response = await apiService.register(userData);
 
       console.log('✅ Registration successful for:', userData.email);
 
@@ -162,7 +151,7 @@ export const AuthProvider = ({ children }) => {
         errorMessage = 'An account with this email already exists.';
       } else if (errorMessage.includes('password') && errorMessage.includes('weak')) {
         errorMessage = 'Password is too weak. Please use a stronger password.';
-      } else if (errorMessage.includes('network') || errorMessage.includes('CORS')) {
+      } else if (errorMessage.includes('network') || errorMessage.includes('CORS') || errorMessage.includes('Failed to fetch')) {
         errorMessage = 'Cannot connect to server. Please check your internet connection.';
       }
 
@@ -193,6 +182,7 @@ export const AuthProvider = ({ children }) => {
       
       // Clear API cache and tokens
       apiService.clearAuthToken();
+      apiService.clearAllCache();
       
       // Reset state
       setUser(null);
@@ -248,6 +238,8 @@ export const AuthProvider = ({ children }) => {
         errorMessage = 'Too many reset attempts. Please try again later.';
       } else if (error.message.includes('403') || error.message.includes('forbidden')) {
         errorMessage = 'Access denied. Please contact support.';
+      } else {
+        errorMessage = error.message || errorMessage;
       }
 
       setError(errorMessage);
