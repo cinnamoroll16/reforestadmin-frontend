@@ -219,7 +219,7 @@ class ApiService {
   async changePassword(passwordData) {
     return this.request('/api/auth/change-password', {
       method: 'POST',
-      body: passwordData
+      body: passwordData  // This should contain: { currentPassword, newPassword, userId }
     });
   }
 
