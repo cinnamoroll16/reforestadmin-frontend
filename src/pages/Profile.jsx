@@ -300,34 +300,86 @@ const Profile = () => {
   };
 
   const handleChangePassword = async () => {
-    if (!passwordData.newPassword || passwordData.newPassword !== passwordData.confirmPassword) {
+    // Clear previous errors
+    setError(null);
+  
+    // Validate new password is provided
+    if (!passwordData.newPassword) {
+      setError("New password is required");
+      return;
+    }
+  
+    // Validate passwords match
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
       setError("Passwords do not match");
       return;
     }
-
+  
+    // Validate password length
     if (passwordData.newPassword.length < 6) {
       setError("Password must be at least 6 characters long");
       return;
     }
-
+  
+    // Validate current password is provided (optional, but good UX)
+    if (!passwordData.currentPassword) {
+      setError("Current password is required");
+      return;
+    }
+  
     try {
       setSaving(true);
       
-      await apiService.changePassword({
+      console.log('🔐 Changing password for user:', user.uid);
+      
+      // Call API with userId from auth context
+      const result = await apiService.changePassword({
         currentPassword: passwordData.currentPassword,
-        newPassword: passwordData.newPassword
+        newPassword: passwordData.newPassword,
+        userId: user.uid  // ✅ This is the critical part
       });
       
-      setSuccess("Password changed successfully");
-      setChangePasswordDialogOpen(false);
-      setPasswordData({
-        currentPassword: "",
-        newPassword: "",
-        confirmPassword: "",
-      });
+      if (result.success) {
+        setSuccess(result.message || "Password changed successfully!");
+        setChangePasswordDialogOpen(false);
+        
+        // Reset password fields
+        setPasswordData({
+          currentPassword: "",
+          newPassword: "",
+          confirmPassword: "",
+        });
+        
+        // Optional: Automatically log out user after password change
+        // This is a security best practice
+        setTimeout(() => {
+          setSuccess("Password changed. Logging out for security...");
+          setTimeout(() => {
+            logout();
+          }, 1500);
+        }, 2000);
+      } else {
+        throw new Error(result.message || "Failed to change password");
+      }
     } catch (error) {
-      console.error('Change password error:', error);
-      setError("Failed to change password: " + error.message);
+      console.error('❌ Change password error:', error);
+      
+      // User-friendly error messages
+      let errorMessage = "Failed to change password. Please try again.";
+      
+      if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      if (error.message.includes('weak')) {
+        errorMessage = "Password is too weak. Please use a stronger password.";
+      } else if (error.message.includes('not found')) {
+        errorMessage = "User not found. Please log in again.";
+      } else if (error.message.includes('network') || error.message.includes('Failed to fetch')) {
+        errorMessage = "Cannot connect to server. Please check your connection.";
+      }
+      
+      setError(errorMessage);
     } finally {
       setSaving(false);
     }
