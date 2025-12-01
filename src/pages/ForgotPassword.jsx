@@ -45,7 +45,15 @@ const ForgotPassword = () => {
       }, 100); // Small delay to ensure state is updated
     }
   }, [success, resetLink]);
-
+  // Add this useEffect to debug
+useEffect(() => {
+  console.log('🔍 State Debug:', {
+    success,
+    resetLink,
+    showResetLinkDialog,
+    shouldShowDialog: success && resetLink
+  });
+}, [success, resetLink, showResetLinkDialog]);
   // Email validation
   const validateEmailFormat = (email) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
