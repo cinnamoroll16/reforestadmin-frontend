@@ -1,4 +1,4 @@
-// src/context/AuthContext.js - COMPLETE FIXED VERSION
+// src/context/AuthContext.js - UPDATED VERSION
 import { useState, createContext, useContext, useEffect } from 'react';
 import { apiService } from '../services/api';
 
@@ -30,17 +30,19 @@ export const AuthProvider = ({ children }) => {
           const userData = JSON.parse(storedUser);
           setUser(userData);
           
-          // Verify the token is still valid by fetching current user
-          try {
-            const currentUser = await apiService.getUser();
-            if (currentUser && currentUser.id === userData.id) {
-              setUser(currentUser);
-              localStorage.setItem('user', JSON.stringify(currentUser));
+          // ✅ FIXED: Check if getUser method exists before calling
+          if (apiService.getUser && typeof apiService.getUser === 'function') {
+            try {
+              const currentUser = await apiService.getUser();
+              if (currentUser && currentUser.id === userData.id) {
+                setUser(currentUser);
+                localStorage.setItem('user', JSON.stringify(currentUser));
+              }
+            } catch (error) {
+              console.warn('Token validation failed:', error.message);
+              // Token is invalid, logout user
+              logout();
             }
-          } catch (error) {
-            console.warn('Token validation failed:', error);
-            // Token is invalid, logout user
-            logout();
           }
         }
       } catch (err) {
@@ -59,7 +61,11 @@ export const AuthProvider = ({ children }) => {
 
       console.log('🔐 Attempting login for:', email);
 
-      // ✅ Pass email and password as separate parameters, not as an object
+      // ✅ FIXED: Check if login method exists
+      if (!apiService.login || typeof apiService.login !== 'function') {
+        throw new Error('Login service not available');
+      }
+
       const response = await apiService.login(email, password);
 
       if (!response.user) {
@@ -72,13 +78,18 @@ export const AuthProvider = ({ children }) => {
       // Store token if provided by backend
       if (response.token) {
         localStorage.setItem('token', response.token);
-        apiService.setAuthToken(response.token);
+        // ✅ FIXED: Check if setAuthToken exists
+        if (apiService.setAuthToken && typeof apiService.setAuthToken === 'function') {
+          apiService.setAuthToken(response.token);
+        }
       }
       
       // If using Firebase auth, store Firebase token
       if (response.firebaseToken) {
         localStorage.setItem('firebaseToken', response.firebaseToken);
-        apiService.setAuthToken(response.firebaseToken);
+        if (apiService.setAuthToken && typeof apiService.setAuthToken === 'function') {
+          apiService.setAuthToken(response.firebaseToken);
+        }
       }
 
       setUser(response.user);
@@ -104,6 +115,8 @@ export const AuthProvider = ({ children }) => {
         errorMessage = 'Cannot connect to server. Please check your internet connection.';
       } else if (errorMessage.includes('too many requests')) {
         errorMessage = 'Too many login attempts. Please try again later.';
+      } else if (errorMessage.includes('service not available')) {
+        errorMessage = 'Login service is currently unavailable. Please try again later.';
       }
 
       setError(errorMessage);
@@ -131,7 +144,11 @@ export const AuthProvider = ({ children }) => {
 
       console.log('👤 Attempting registration for:', userData.email);
 
-      // ✅ Pass the userData object directly to apiService.register
+      // ✅ FIXED: Check if register method exists
+      if (!apiService.register || typeof apiService.register !== 'function') {
+        throw new Error('Registration service not available');
+      }
+
       const response = await apiService.register(userData);
 
       console.log('✅ Registration successful for:', userData.email);
@@ -153,6 +170,8 @@ export const AuthProvider = ({ children }) => {
         errorMessage = 'Password is too weak. Please use a stronger password.';
       } else if (errorMessage.includes('network') || errorMessage.includes('CORS') || errorMessage.includes('Failed to fetch')) {
         errorMessage = 'Cannot connect to server. Please check your internet connection.';
+      } else if (errorMessage.includes('service not available')) {
+        errorMessage = 'Registration service is currently unavailable. Please try again later.';
       }
 
       setError(errorMessage);
@@ -167,12 +186,14 @@ export const AuthProvider = ({ children }) => {
 
   const logout = async () => {
     try {
-      // Call backend logout if available
-      try {
-        await apiService.logout();
-      } catch (error) {
-        console.warn('Backend logout failed:', error);
-        // Continue with client-side logout anyway
+      // ✅ FIXED: Only call logout if the method exists
+      if (apiService.logout && typeof apiService.logout === 'function') {
+        try {
+          await apiService.logout();
+        } catch (error) {
+          console.warn('Backend logout failed:', error.message);
+          // Continue with client-side logout anyway
+        }
       }
 
       // Clear local storage
@@ -180,9 +201,14 @@ export const AuthProvider = ({ children }) => {
       localStorage.removeItem('token');
       localStorage.removeItem('firebaseToken');
       
-      // Clear API cache and tokens
-      apiService.clearAuthToken();
-      apiService.clearAllCache();
+      // ✅ FIXED: Only call these methods if they exist
+      if (apiService.clearAuthToken && typeof apiService.clearAuthToken === 'function') {
+        apiService.clearAuthToken();
+      }
+      
+      if (apiService.clearAllCache && typeof apiService.clearAllCache === 'function') {
+        apiService.clearAllCache();
+      }
       
       // Reset state
       setUser(null);
@@ -211,6 +237,11 @@ export const AuthProvider = ({ children }) => {
 
       console.log('🔐 Forgot password request for:', email);
       
+      // ✅ FIXED: Check if forgotPassword method exists
+      if (!apiService.forgotPassword || typeof apiService.forgotPassword !== 'function') {
+        throw new Error('Password reset service not available');
+      }
+
       const response = await apiService.forgotPassword(email);
 
       if (response.success) {
@@ -238,6 +269,8 @@ export const AuthProvider = ({ children }) => {
         errorMessage = 'Too many reset attempts. Please try again later.';
       } else if (error.message.includes('403') || error.message.includes('forbidden')) {
         errorMessage = 'Access denied. Please contact support.';
+      } else if (error.message.includes('service not available')) {
+        errorMessage = 'Password reset service is currently unavailable.';
       } else {
         errorMessage = error.message || errorMessage;
       }
@@ -260,6 +293,11 @@ export const AuthProvider = ({ children }) => {
 
       console.log('🔄 Attempting password reset');
 
+      // ✅ FIXED: Check if resetPassword method exists
+      if (!apiService.resetPassword || typeof apiService.resetPassword !== 'function') {
+        throw new Error('Password reset service not available');
+      }
+
       const response = await apiService.resetPassword(token, newPassword);
 
       if (response.success) {
@@ -280,6 +318,8 @@ export const AuthProvider = ({ children }) => {
         errorMessage = 'The reset link has expired or is invalid. Please request a new password reset.';
       } else if (errorMessage.includes('network') || errorMessage.includes('CORS')) {
         errorMessage = 'Cannot connect to server. Please check your internet connection.';
+      } else if (errorMessage.includes('service not available')) {
+        errorMessage = 'Password reset service is currently unavailable.';
       }
 
       setError(errorMessage);
@@ -299,6 +339,11 @@ export const AuthProvider = ({ children }) => {
       }
 
       console.log('🔄 Attempting password change');
+
+      // ✅ FIXED: Check if changePassword method exists
+      if (!apiService.changePassword || typeof apiService.changePassword !== 'function') {
+        throw new Error('Password change service not available');
+      }
 
       const response = await apiService.changePassword({
         currentPassword,
@@ -323,6 +368,8 @@ export const AuthProvider = ({ children }) => {
         errorMessage = 'Current password is incorrect.';
       } else if (errorMessage.includes('network') || errorMessage.includes('CORS')) {
         errorMessage = 'Cannot connect to server. Please check your internet connection.';
+      } else if (errorMessage.includes('service not available')) {
+        errorMessage = 'Password change service is currently unavailable.';
       }
 
       setError(errorMessage);
@@ -338,6 +385,11 @@ export const AuthProvider = ({ children }) => {
       setLoading(true);
 
       console.log('📝 Updating user profile');
+
+      // ✅ FIXED: Check if updateProfile method exists
+      if (!apiService.updateProfile || typeof apiService.updateProfile !== 'function') {
+        throw new Error('Profile update service not available');
+      }
 
       const response = await apiService.updateProfile(profileData);
 
@@ -368,15 +420,18 @@ export const AuthProvider = ({ children }) => {
 
   const refreshUser = async () => {
     try {
-      const currentUser = await apiService.getUser();
-      if (currentUser) {
-        setUser(currentUser);
-        localStorage.setItem('user', JSON.stringify(currentUser));
-        return currentUser;
+      // ✅ FIXED: Check if getUser method exists
+      if (apiService.getUser && typeof apiService.getUser === 'function') {
+        const currentUser = await apiService.getUser();
+        if (currentUser) {
+          setUser(currentUser);
+          localStorage.setItem('user', JSON.stringify(currentUser));
+          return currentUser;
+        }
       }
+      return user; // Return current user if refresh fails
     } catch (error) {
-      console.error('❌ Failed to refresh user data:', error);
-      // Don't logout here, just return current user
+      console.error('❌ Failed to refresh user data:', error.message);
       return user;
     }
   };
