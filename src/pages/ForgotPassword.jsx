@@ -1,4 +1,4 @@
-// src/pages/ForgotPassword.jsx - Updated to handle development mode
+// src/pages/ForgotPassword.jsx - UPDATED VERSION
 import React, { useState } from 'react';
 import {
   Paper,
@@ -20,7 +20,7 @@ import {
   IconButton,
   Tooltip,
 } from '@mui/material';
-import { Email, CheckCircle, ArrowBack, ErrorOutline, ContentCopy, Close } from '@mui/icons-material';
+import { Email, CheckCircle, ArrowBack, ErrorOutline, ContentCopy, Close, OpenInNew } from '@mui/icons-material';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -35,6 +35,7 @@ const ForgotPassword = () => {
   const [fieldError, setFieldError] = useState('');
   const [resetLink, setResetLink] = useState('');
   const [showResetLink, setShowResetLink] = useState(false);
+  const [decodedResetLink, setDecodedResetLink] = useState('');
 
   // Email validation function
   const validateEmailFormat = (email) => {
@@ -67,6 +68,29 @@ const ForgotPassword = () => {
     return true;
   };
 
+  // Function to decode Firebase reset link
+  const decodeFirebaseResetLink = (link) => {
+    try {
+      // Firebase reset links often have encoded continueUrl parameter
+      const url = new URL(link);
+      
+      // Extract the continueUrl parameter
+      const continueUrl = url.searchParams.get('continueUrl');
+      
+      if (continueUrl) {
+        // Decode the continueUrl
+        const decodedContinueUrl = decodeURIComponent(continueUrl);
+        console.log('🔗 Decoded continueUrl:', decodedContinueUrl);
+        return decodedContinueUrl;
+      }
+      
+      return link; // Return original if no continueUrl
+    } catch (error) {
+      console.warn('Could not decode reset link:', error);
+      return link; // Return original if decoding fails
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     
@@ -74,6 +98,7 @@ const ForgotPassword = () => {
     setError('');
     setFieldError('');
     setResetLink('');
+    setDecodedResetLink('');
     
     // Validate form
     if (!validateForm()) {
@@ -89,10 +114,17 @@ const ForgotPassword = () => {
       
       if (result.success) {
         console.log('✅ Password reset email sent successfully');
+        console.log('🔗 Reset link from API:', result.resetLink);
         
-        // Check if we got a reset link (development mode)
+        // Check if we got a reset link
         if (result.resetLink) {
           setResetLink(result.resetLink);
+          
+          // Try to decode Firebase link for better display
+          const decodedLink = decodeFirebaseResetLink(result.resetLink);
+          setDecodedResetLink(decodedLink);
+          
+          // Show the reset link dialog immediately
           setShowResetLink(true);
         }
         
@@ -135,6 +167,8 @@ const ForgotPassword = () => {
     // Clear errors
     setError('');
     setFieldError('');
+    setResetLink('');
+    setDecodedResetLink('');
     
     if (!validateForm()) {
       return;
@@ -152,6 +186,11 @@ const ForgotPassword = () => {
         // Update reset link if provided
         if (result.resetLink) {
           setResetLink(result.resetLink);
+          
+          // Decode the link
+          const decodedLink = decodeFirebaseResetLink(result.resetLink);
+          setDecodedResetLink(decodedLink);
+          
           setShowResetLink(true);
         }
         
@@ -179,16 +218,18 @@ const ForgotPassword = () => {
   };
 
   const handleCopyResetLink = () => {
-    if (resetLink) {
-      navigator.clipboard.writeText(resetLink);
+    const linkToCopy = decodedResetLink || resetLink;
+    if (linkToCopy) {
+      navigator.clipboard.writeText(linkToCopy);
       setError('Reset link copied to clipboard!');
       setTimeout(() => setError(''), 3000);
     }
   };
 
   const handleOpenResetLink = () => {
-    if (resetLink) {
-      window.open(resetLink, '_blank');
+    const linkToOpen = resetLink; // Use the original Firebase link
+    if (linkToOpen) {
+      window.open(linkToOpen, '_blank');
     }
   };
 
@@ -295,7 +336,7 @@ const ForgotPassword = () => {
                       Development Mode Active
                     </Typography>
                     <Typography variant="body2">
-                      Since this is development mode, the reset link is shown below instead of being emailed.
+                      Since emails might not work in development, the reset link is shown below.
                     </Typography>
                   </Alert>
                 )}
@@ -314,12 +355,13 @@ const ForgotPassword = () => {
                   </Alert>
                 )}
 
-                {/* Show Reset Link Button (Development) */}
+                {/* Show Reset Link Button */}
                 {resetLink && (
                   <Button
                     fullWidth
-                    variant="outlined"
+                    variant="contained"
                     onClick={() => setShowResetLink(true)}
+                    startIcon={<OpenInNew />}
                     sx={{
                       py: 1.5,
                       mb: 2,
@@ -327,15 +369,13 @@ const ForgotPassword = () => {
                       textTransform: 'none',
                       fontSize: '16px',
                       fontWeight: 600,
-                      borderColor: '#ff9800',
-                      color: '#ff9800',
+                      backgroundColor: '#ff9800',
                       '&:hover': {
-                        borderColor: '#f57c00',
-                        bgcolor: alpha('#ff9800', 0.04),
+                        backgroundColor: '#f57c00',
                       },
                     }}
                   >
-                    Show Reset Link
+                    View Reset Link
                   </Button>
                 )}
 
@@ -472,7 +512,7 @@ const ForgotPassword = () => {
                   fontWeight: 400,
                   maxWidth: 400,
                   mx: 'auto'
-                }}
+              }}
               >
                 Join us in restoring our planet, one tree at a time
               </Typography>
@@ -480,7 +520,7 @@ const ForgotPassword = () => {
           </Grid>
         </Grid>
 
-        {/* Reset Link Dialog */}
+        {/* Reset Link Dialog - AUTOMATICALLY SHOWN */}
         <Dialog
           open={showResetLink}
           onClose={() => setShowResetLink(false)}
@@ -490,7 +530,7 @@ const ForgotPassword = () => {
           <DialogTitle>
             <Box display="flex" alignItems="center" justifyContent="space-between">
               <Typography variant="h6" fontWeight={600}>
-                Password Reset Link
+                🔗 Password Reset Link Generated
               </Typography>
               <IconButton onClick={() => setShowResetLink(false)}>
                 <Close />
@@ -500,43 +540,68 @@ const ForgotPassword = () => {
           <DialogContent>
             <Alert severity="info" sx={{ mb: 2 }}>
               <Typography variant="body2">
-                This reset link is shown because you're in development mode. 
-                In production, this would be sent via email.
+                ⚠️ <strong>Development Mode</strong>: Since email sending might not work in development, 
+                your reset link is shown below. In production, this would be sent to your email.
               </Typography>
             </Alert>
             
-            <Typography variant="body2" color="text.secondary" gutterBottom>
-              Copy this link and open it in your browser to reset your password:
+            <Typography variant="body1" gutterBottom sx={{ fontWeight: 500 }}>
+              Click the button below to open the reset link in a new tab:
             </Typography>
             
-            <Paper
-              variant="outlined"
-              sx={{
-                p: 2,
-                mt: 1,
-                mb: 2,
-                backgroundColor: '#f5f5f5',
-                wordBreak: 'break-all',
-                fontFamily: 'monospace',
-                fontSize: '0.8rem',
-              }}
-            >
-              {resetLink}
-            </Paper>
+            <Box sx={{ mb: 2, mt: 2 }}>
+              <Typography variant="caption" color="text.secondary" display="block" gutterBottom>
+                <strong>Original Firebase Link:</strong>
+              </Typography>
+              <Paper
+                variant="outlined"
+                sx={{
+                  p: 1.5,
+                  backgroundColor: '#f9f9f9',
+                  wordBreak: 'break-all',
+                  fontFamily: 'monospace',
+                  fontSize: '0.75rem',
+                  mb: 2,
+                }}
+              >
+                {resetLink}
+              </Paper>
+            </Box>
+            
+            {decodedResetLink && decodedResetLink !== resetLink && (
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="caption" color="text.secondary" display="block" gutterBottom>
+                  <strong>Decoded Redirect URL:</strong>
+                </Typography>
+                <Paper
+                  variant="outlined"
+                  sx={{
+                    p: 1.5,
+                    backgroundColor: '#fff8e1',
+                    wordBreak: 'break-all',
+                    fontFamily: 'monospace',
+                    fontSize: '0.75rem',
+                  }}
+                >
+                  {decodedResetLink}
+                </Paper>
+              </Box>
+            )}
             
             <Typography variant="caption" color="text.secondary">
-              This link will expire in 1 hour.
+              ⏰ <strong>Note:</strong> This link will expire in 1 hour.
             </Typography>
           </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setShowResetLink(false)}>
+          <DialogActions sx={{ p: 2, pt: 0 }}>
+            <Button onClick={() => setShowResetLink(false)} sx={{ mr: 1 }}>
               Close
             </Button>
-            <Tooltip title="Copy reset link">
+            <Tooltip title="Copy the Firebase reset link">
               <Button 
                 startIcon={<ContentCopy />}
                 onClick={handleCopyResetLink}
                 variant="outlined"
+                sx={{ mr: 1 }}
               >
                 Copy Link
               </Button>
@@ -544,18 +609,20 @@ const ForgotPassword = () => {
             <Button 
               onClick={handleOpenResetLink}
               variant="contained"
+              startIcon={<OpenInNew />}
               sx={{
                 backgroundColor: '#2e7d32',
                 '&:hover': { backgroundColor: '#1b5e20' }
               }}
             >
-              Open Reset Link
+              Open Reset Page
             </Button>
           </DialogActions>
         </Dialog>
       </Box>
     );
   }
+  
   // Form state
   return (
     <Box
