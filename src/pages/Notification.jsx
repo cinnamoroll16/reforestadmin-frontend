@@ -6,6 +6,7 @@ import {
   Badge, useMediaQuery, useTheme, LinearProgress, alpha,
   Tabs, Tab, Snackbar, CircularProgress, Stack, Card
 } from '@mui/material';
+import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import ReForestAppBar from './AppBar.jsx';
 import Navigation from './Navigation.jsx';
 import { useAuth } from '../context/AuthContext.js';
@@ -533,7 +534,6 @@ const NotificationPanel = () => {
   const [activeTab, setActiveTab] = useState(0);
   const [alert, setAlert] = useState({ open: false, message: '', severity: 'info' });
   const [saving, setSaving] = useState(false);
-  const [deletingId, setDeletingId] = useState(null);
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
@@ -622,27 +622,55 @@ const NotificationPanel = () => {
     setRecordDialogOpen(true);
   };
 
-  const handleViewNotification = async (notification) => {
-    setSelectedNotification(notification);
-    setNotificationDialogOpen(true);
+  const handleNotificationClick = async (notification) => {
+  // Mark as read when clicked
+  if (!notification.read) {
+    setNotifications(prev => prev.map(n => 
+      n.id === notification.id ? { ...n, read: true } : n
+    ));
     
-    if (notification.isRealNotification && !notification.isRead) {
+    // If it's a real notification, update via API
+    if (notification.isRealNotification) {
       try {
         await apiService.updateNotification(notification.id, {
           isRead: true,
           read: true,
           updatedAt: new Date().toISOString()
         });
-        
-        setNotifications(prev => prev.map(n => 
-          n.id === notification.id ? { ...n, isRead: true, read: true } : n
-        ));
       } catch (error) {
         console.error('Error marking notification as read:', error);
       }
     }
-  };
+    
+    setAlert({
+      open: true,
+      message: 'Notification marked as read',
+      severity: 'success'
+    });
+  }
 
+  // Handle different notification types
+  if (notification.type === 'plant_request' || notification.type === 'request_submitted') {
+    const requestId = notification.data?.plantRequestId || notification.requestId;
+    const request = plantingRequests.find(req => 
+      req.id === requestId || req.requestId === requestId
+    );
+    if (request) {
+      setSelectedRequest(request);
+      setDetailDialogOpen(true);
+    }
+  } else if (notification.type === 'planting_record') {
+    const recordId = notification.data?.plantingRecordId;
+    const record = plantingRecords.find(rec => rec.id === recordId);
+    if (record) {
+      setSelectedRecord(record);
+      setRecordDialogOpen(true);
+    }
+  } else {
+    setSelectedNotification(notification);
+    setNotificationDialogOpen(true);
+  }
+};
   const handleMarkAllAsRead = async () => {
     try {
       setSaving(true);
@@ -679,52 +707,6 @@ const NotificationPanel = () => {
       });
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleRemoveNotification = async (notificationId, event) => {
-    if (event) {
-      event.stopPropagation();
-    }
-    
-    try {
-      setDeletingId(notificationId);
-      
-      if (notificationId.startsWith('request-') || notificationId.startsWith('record-')) {
-        setNotifications(prev => prev.filter(n => n.id !== notificationId));
-        setAlert({ 
-          open: true, 
-          message: 'Notification removed', 
-          severity: 'success' 
-        });
-      } else {
-        try {
-          await apiService.deleteNotification(notificationId);
-          setNotifications(prev => prev.filter(n => n.id !== notificationId));
-          setAlert({ 
-            open: true, 
-            message: 'Notification deleted', 
-            severity: 'success' 
-          });
-        } catch (apiError) {
-          console.error('API delete failed:', apiError);
-          setNotifications(prev => prev.filter(n => n.id !== notificationId));
-          setAlert({ 
-            open: true, 
-            message: 'Notification removed from view', 
-            severity: 'warning' 
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Error removing notification:', error);
-      setAlert({ 
-        open: true, 
-        message: 'Error removing notification', 
-        severity: 'error' 
-      });
-    } finally {
-      setDeletingId(null);
     }
   };
 
@@ -817,121 +799,135 @@ const NotificationPanel = () => {
   const unreadCount = allNotifications.filter(n => !n.read).length;
   const plantingRequestUnreadCount = plantingRequestNotifications.filter(n => !n.read).length;
 
-  // NotificationRow component
   const NotificationRow = ({ notification }) => (
-    <Paper 
-      sx={{ 
-        p: 2, 
-        mb: 1,
-        borderRadius: 2,
-        borderLeft: `4px solid ${
-          notification.type === 'plant_request' || notification.type === 'request_submitted' ? theme.palette.warning.main :
-          notification.type === 'planting_record' ? theme.palette.success.main :
-          theme.palette.info.main
-        }`,
-        backgroundColor: notification.read ? 'background.paper' : alpha(theme.palette.primary.main, 0.04),
-        cursor: 'pointer',
-        transition: 'all 0.2s ease-in-out',
-        '&:hover': { 
-          transform: 'translateY(-1px)',
-          boxShadow: 2,
-          backgroundColor: notification.read ? 
-            alpha(theme.palette.primary.main, 0.02) : 
-            alpha(theme.palette.primary.main, 0.08)
-        }
-      }}
-      onClick={() => {
-        if (notification.type === 'plant_request' || notification.type === 'request_submitted') {
-          const requestId = notification.data?.plantRequestId || notification.requestId;
-          const request = plantingRequests.find(req => 
-            req.id === requestId || req.requestId === requestId
-          );
-          if (request) handleViewDetails(request);
-        } else if (notification.type === 'planting_record') {
-          const recordId = notification.data?.plantingRecordId;
-          const record = plantingRecords.find(rec => rec.id === recordId);
-          if (record) handleViewRecord(record);
-        } else {
-          handleViewNotification(notification);
-        }
-      }}
-    >
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+  <Paper 
+    sx={{ 
+      p: 2.5, 
+      mb: 1.5,
+      borderRadius: 2,
+      borderLeft: `4px solid ${
+        notification.type === 'plant_request' || notification.type === 'request_submitted' ? theme.palette.warning.main :
+        notification.type === 'planting_record' ? theme.palette.success.main :
+        notification.type === 'request_approved' ? theme.palette.success.main :
+        notification.type === 'request_rejected' ? theme.palette.error.main :
+        theme.palette.info.main
+      }`,
+      backgroundColor: notification.read ? 'background.paper' : alpha(theme.palette.primary.main, 0.05),
+      cursor: 'pointer',
+      transition: 'all 0.2s ease-in-out',
+      position: 'relative',
+      '&:hover': { 
+        transform: 'translateY(-2px)',
+        boxShadow: 3,
+        backgroundColor: notification.read ? 
+          alpha(theme.palette.primary.main, 0.02) : 
+          alpha(theme.palette.primary.main, 0.08)
+      }
+    }}
+    onClick={() => handleNotificationClick(notification)}
+  >
+    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+      {/* Unread indicator dot */}
+      {!notification.read && (
         <Box sx={{ 
-          color: notification.read ? 'text.secondary' : 
-            (notification.type === 'plant_request' || notification.type === 'request_submitted') ? 'warning.main' :
-            notification.type === 'planting_record' ? 'success.main' : 'primary.main',
-          mt: 0.5
+          position: 'absolute',
+          top: 12,
+          right: 12,
         }}>
-          {getNotificationIcon(notification.type)}
+          <FiberManualRecordIcon 
+            sx={{ 
+              fontSize: 12, 
+              color: 'primary.main',
+              animation: 'pulse 2s ease-in-out infinite',
+              '@keyframes pulse': {
+                '0%, 100%': { opacity: 1 },
+                '50%': { opacity: 0.5 }
+              }
+            }} 
+          />
         </Box>
-        
-        <Box sx={{ flex: 1 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexWrap: 'wrap' }}>
-            <Typography 
-              variant="subtitle1" 
-              sx={{ 
-                fontWeight: notification.read ? 'normal' : 'bold',
-                color: notification.read ? 'text.primary' : 
-                  (notification.type === 'plant_request' || notification.type === 'request_submitted') ? 'warning.main' :
-                  notification.type === 'planting_record' ? 'success.main' : 'primary.main'
-              }}
-            >
-              {notification.title}
-            </Typography>
-            <Chip 
-              label={formatType(notification.type)} 
-              size="small" 
-              color={getStatusColor(notification.type === 'request_submitted' ? 'submitted' : notification.type)}
-              variant="outlined"
-            />
-            {!notification.read && (
-              <Chip 
-                label="New" 
-                size="small" 
-                color="primary"
-                variant="filled"
-              />
-            )}
-          </Box>
-          
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            {notification.notif_message || notification.message}
-          </Typography>
-          
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-            <Typography variant="caption" color="text.secondary">
-              {formatDateTime(notification.timestamp)}
-            </Typography>
-            {notification.fullName && (
-              <Typography variant="caption" color="text.secondary">
-                • By: {notification.fullName}
-              </Typography>
-            )}
-            {notification.location && (
-              <Typography variant="caption" color="text.secondary">
-                • Location: {notification.location}
-              </Typography>
-            )}
-          </Box>
-        </Box>
-        
-        <Box>
-          <IconButton 
-            size="small" 
-            onClick={(e) => handleRemoveNotification(notification.id, e)}
-            color="error"
-            disabled={deletingId === notification.id}
-            sx={{ opacity: 0.7, '&:hover': { opacity: 1 } }}
-            title="Remove notification"
+      )}
+
+      <Box sx={{ 
+        color: notification.read ? 'text.secondary' : 
+          (notification.type === 'plant_request' || notification.type === 'request_submitted') ? 'warning.main' :
+          notification.type === 'planting_record' ? 'success.main' : 
+          notification.type === 'request_approved' ? 'success.main' :
+          notification.type === 'request_rejected' ? 'error.main' :
+          'primary.main',
+        mt: 0.5
+      }}>
+        {getNotificationIcon(notification.type)}
+      </Box>
+      
+      <Box sx={{ flex: 1, pr: 3 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexWrap: 'wrap' }}>
+          <Typography 
+            variant="subtitle1" 
+            sx={{ 
+              fontWeight: notification.read ? 500 : 700,
+              color: notification.read ? 'text.primary' : 
+                (notification.type === 'plant_request' || notification.type === 'request_submitted') ? 'warning.main' :
+                notification.type === 'planting_record' ? 'success.main' : 
+                notification.type === 'request_approved' ? 'success.main' :
+                notification.type === 'request_rejected' ? 'error.main' :
+                'primary.main'
+            }}
           >
-            {deletingId === notification.id ? <CircularProgress size={20} /> : <DeleteIcon />}
-          </IconButton>
+            {notification.title}
+          </Typography>
+          <Chip 
+            label={formatType(notification.type)} 
+            size="small" 
+            color={getStatusColor(notification.type === 'request_submitted' ? 'submitted' : notification.type)}
+            variant="outlined"
+            sx={{ fontWeight: 500 }}
+          />
+          {!notification.read && (
+            <Chip 
+              label="New" 
+              size="small" 
+              color="primary"
+              variant="filled"
+              sx={{ 
+                fontWeight: 600,
+                height: 20,
+                fontSize: '0.7rem'
+              }}
+            />
+          )}
+        </Box>
+        
+        <Typography 
+          variant="body2" 
+          color={notification.read ? 'text.secondary' : 'text.primary'}
+          sx={{ 
+            mb: 1.5,
+            fontWeight: notification.read ? 400 : 500
+          }}
+        >
+          {notification.notif_message || notification.message}
+        </Typography>
+        
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+          <Typography variant="caption" color="text.secondary">
+            {formatDateTime(notification.timestamp)}
+          </Typography>
+          {notification.fullName && (
+            <Typography variant="caption" color="text.secondary">
+              • By: {notification.fullName}
+            </Typography>
+          )}
+          {notification.location && (
+            <Typography variant="caption" color="text.secondary">
+              • Location: {notification.location}
+            </Typography>
+          )}
         </Box>
       </Box>
-    </Paper>
-  );
-
+    </Box>
+  </Paper>
+);
   const EmptyState = ({ icon: Icon, title, description }) => (
     <Paper sx={{ textAlign: 'center', p: 6, borderRadius: 2 }}>
       <Icon sx={{ fontSize: 64, color: '#ccc', mb: 2 }} />
