@@ -317,11 +317,10 @@ const DatasetUploadSection = ({
   const handleFileSelect = (event) => {
     const file = event.target.files[0];
     if (file) {
-      // Validate file type
       const validTypes = [
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
-        'application/vnd.ms-excel', // .xls
-        'text/csv', // .csv
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-excel',
+        'text/csv',
       ];
       
       if (!validTypes.includes(file.type)) {
@@ -350,102 +349,55 @@ const DatasetUploadSection = ({
   };
 
   return (
-    <Box sx={{ mb: 3 }}>
+    <Paper sx={{ mb: 3, p: 2.5, borderRadius: 2, boxShadow: 1 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+        <Typography variant="h6" fontWeight="600">
+          Tree Dataset Management
+        </Typography>
+      </Box>
+
       {mlServiceStatus.datasetLoaded ? (
-        <Alert 
-          severity="success" 
-          icon={<CheckCircleIcon fontSize="large" />}
-          action={
-            <Button 
-              color="inherit" 
-              size="small" 
-              onClick={onReload}
-              disabled={reloadingDataset}
-              startIcon={reloadingDataset ? <CircularProgress size={16} /> : <RefreshIcon />}
-            >
-              {reloadingDataset ? 'Reloading...' : 'Reload'}
-            </Button>
-          }
-        >
-          <Box sx={{ 
-  display: 'flex', 
-  alignItems: 'flex-start', 
-  gap: 2,
-  p: 2,
-  border: '1px solid',
-  borderColor: 'success.light',
-  borderRadius: 2,
-  bgcolor: 'success.50'
-}}>
-  <Box sx={{ 
-    display: 'flex', 
-    alignItems: 'center', 
-    justifyContent: 'center',
-    width: 40,
-    height: 40,
-    borderRadius: '50%',
-    bgcolor: 'success.main',
-    color: 'white'
-  }}>
-    <ScienceIcon fontSize="small" />
-  </Box>
-  
-  <Box sx={{ flex: 1 }}>
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-      <Typography variant="h6" fontWeight="600" color="text.primary">
-        AI Tree Recommendations
-      </Typography>
-      <Chip 
-        label="Ready" 
-        size="small" 
-        color="success" 
-        variant="filled"
-        sx={{ fontWeight: '500' }}
-      />
-    </Box>
-    
-    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-      <strong>{mlServiceStatus.speciesCount || mlServiceStatus.datasetSize} species</strong> • 
-      Random Forest model • 
-      {mlServiceStatus.datasetName || 'Tree_Seedling_Dataset.xlsx'}
-    </Typography>
-    
-    {mlServiceStatus.lastUpdate && (
-      <Typography variant="caption" color="text.secondary">
-        Updated {new Date(mlServiceStatus.lastUpdate).toLocaleDateString()}
-      </Typography>
-    )}
-  </Box>
-</Box>
-        </Alert>
-      ) : (
-        <Alert 
-          severity="warning"
-          icon={<WarningIcon fontSize="large" />}
-        >
-          <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            🌳 Tree Database Required
-            <Chip 
-              label="Setup Needed" 
-              size="small" 
-              color="warning" 
-              variant="outlined"
+        <Box>
+          <Button
+            variant="contained"
+            component="label"
+            startIcon={<CloudUploadIcon />}
+            sx={{ 
+              bgcolor: '#2e7d32',
+              '&:hover': { bgcolor: '#1b5e20' },
+              textTransform: 'none',
+              fontWeight: 500
+            }}
+          >
+            Upload Tree Dataset
+            <input
+              type="file"
+              hidden
+              accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
+              onChange={handleFileSelect}
+              ref={fileInputRef}
             />
+          </Button>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
+            Upload Tree_Seedling_Dataset.xlsx to enable ML recommendations
           </Typography>
-          
+        </Box>
+      ) : (
+        <Box>
           {!selectedFile ? (
-            <Box>
-              <Typography variant="body2" sx={{ mb: 2 }}>
-                To enable AI tree recommendations, upload your tree seedling dataset file.
-                Supported formats: Excel (.xlsx, .xls) or CSV files.
-              </Typography>
+            <>
               <Button
                 variant="contained"
                 component="label"
                 startIcon={<CloudUploadIcon />}
-                sx={{ mr: 2 }}
+                sx={{ 
+                  bgcolor: '#2e7d32',
+                  '&:hover': { bgcolor: '#1b5e20' },
+                  textTransform: 'none',
+                  fontWeight: 500
+                }}
               >
-                Select Dataset File
+                Upload Tree Dataset
                 <input
                   type="file"
                   hidden
@@ -454,26 +406,26 @@ const DatasetUploadSection = ({
                   ref={fileInputRef}
                 />
               </Button>
-              <Button
-                variant="outlined"
-                onClick={onReload}
-                disabled={reloadingDataset}
-                startIcon={reloadingDataset ? <CircularProgress size={16} /> : <RefreshIcon />}
-              >
-                {reloadingDataset ? 'Checking...' : 'Check Existing'}
-              </Button>
-            </Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
+                Upload Tree_Seedling_Dataset.xlsx to enable ML recommendations
+              </Typography>
+            </>
           ) : (
             <Box>
               <Typography variant="body2" sx={{ mb: 2 }}>
                 Selected file: <strong>{selectedFile.name}</strong> ({Math.round(selectedFile.size / 1024)} KB)
               </Typography>
-              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+              <Box sx={{ display: 'flex', gap: 2 }}>
                 <Button
                   variant="contained"
                   onClick={handleUpload}
                   disabled={uploadingDataset}
                   startIcon={uploadingDataset ? <CircularProgress size={16} /> : <UploadIcon />}
+                  sx={{ 
+                    bgcolor: '#2e7d32',
+                    '&:hover': { bgcolor: '#1b5e20' },
+                    textTransform: 'none'
+                  }}
                 >
                   {uploadingDataset ? 'Uploading...' : 'Upload Dataset'}
                 </Button>
@@ -481,18 +433,31 @@ const DatasetUploadSection = ({
                   variant="outlined"
                   onClick={handleCancel}
                   disabled={uploadingDataset}
+                  sx={{ textTransform: 'none' }}
                 >
                   Cancel
                 </Button>
               </Box>
             </Box>
           )}
-        </Alert>
+          
+          <Alert 
+            severity="info" 
+            icon={<InfoIcon />}
+            sx={{ 
+              mt: 2,
+              bgcolor: '#e3f2fd',
+              border: '1px solid #90caf9',
+              '& .MuiAlert-icon': { color: '#1976d2' }
+            }}
+          >
+            Backend connected. Please upload tree dataset to enable recommendations.
+          </Alert>
+        </Box>
       )}
-    </Box>
+    </Paper>
   );
 };
-
 // ============================================================================
 // SENSOR HISTORY GRID COMPONENT
 // ============================================================================
