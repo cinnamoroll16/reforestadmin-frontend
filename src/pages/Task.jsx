@@ -333,86 +333,125 @@ const SeedlingAssignmentPage = () => {
   };
 
   // Create notification for seedling assignment
-  const createSeedlingAssignmentNotification = async (request, seedlingDetails) => {
-    // UPDATED SECTION: Update the planting request status to 'assigned_seedlings' with updatedAt timestamp
+const createSeedlingAssignmentNotification = async (request, seedlingDetails) => {
+  try {
+    // Create notification data matching the Firebase structure
+    const currentTimestamp = new Date();
+    const notificationData = {
+      createdAt: currentTimestamp,
+      data: {
+        location_address: request.location_address || 'Unknown Location',
+        recommendationId: currentRecommendation?.id || 'N/A',
+        requestId: request.id,
+        seedlingName: seedlingDetails.seedling_commonName || 'Unknown Seedling'
+      },
+      notif_message: `Your seedling has been assigned for planting at ${request.location_address || 'your location'}`,
+      notif_timestamp: currentTimestamp,
+      notification_type: 'assigned_seedlings',
+      priority: 'high',
+      read: false,
+      targetRole: 'planter',
+      targetUser: request.userRef.includes('/') ? request.userRef : `/users/${request.userRef}`
+    };
+
+    console.log('📧 Creating notification:', notificationData);
+
+    // Create the notification using API service
     try {
-      const currentTimestamp = new Date().toISOString();
-      const updateData = {
-        request_status: 'assigned_seedlings',
-        assigned_at: currentTimestamp,
-        assigned_by: user.id,
-        updatedAt: currentTimestamp
-      };
-      
-      console.log('🔄 Updating planting request:', selectedRequest.id);
-      console.log('📝 Update data:', updateData);
-      console.log('🔍 Testing API endpoint structure...');
-      
-      // Test different possible endpoint patterns
+      const notificationResult = await apiService.createNotification(notificationData);
+      console.log('✅ Notification created successfully:', notificationResult);
+    } catch (notifError) {
+      console.error('❌ Error creating notification:', notifError);
+      // Try direct API call as fallback
       try {
-        const updateResult = await apiService.updatePlantingRequest(selectedRequest.id, updateData);
-        console.log('✅ Planting request update result:', updateResult);
+        const response = await fetch('https://reforestadmin-backend.vercel.app/api/notifications', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(notificationData)
+        });
         
-        if (!updateResult.success && updateResult.success !== undefined) {
-          throw new Error(updateResult.error || 'Failed to update planting request');
+        if (response.ok) {
+          console.log('✅ Notification created via direct API call');
+        } else {
+          console.warn('⚠️ Failed to create notification via direct API call');
         }
-        
-        console.log('✅ Updated planting request status to assigned_seedlings with updatedAt timestamp');
-      } catch (firstError) {
-        console.warn('⚠️ First update attempt failed:', firstError.message);
-        console.log('🔄 Trying alternative method: Direct fetch with different endpoint patterns...');
-        
-        // Try alternative patterns if the API service method fails
-        const baseURL = 'https://reforestadmin-backend.vercel.app/api';
-        const possibleEndpoints = [
-          `${baseURL}/planting-requests/${selectedRequest.id}`,
-          `${baseURL}/plantingRequests/${selectedRequest.id}`,
-          `${baseURL}/requests/${selectedRequest.id}`,
-          `${baseURL}/planting_requests/${selectedRequest.id}`
-        ];
-        
-        let updateSuccess = false;
-        let lastError = null;
-        
-        for (const endpoint of possibleEndpoints) {
-          try {
-            console.log(`🔍 Trying endpoint: ${endpoint}`);
-            const response = await fetch(endpoint, {
-              method: 'PATCH',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify(updateData)
-            });
-            
-            if (response.ok) {
-              console.log(`✅ Success with endpoint: ${endpoint}`);
-              updateSuccess = true;
-              break;
-            } else {
-              console.log(`❌ Failed with ${response.status}: ${endpoint}`);
-            }
-          } catch (err) {
-            console.log(`❌ Error with ${endpoint}:`, err.message);
-            lastError = err;
-          }
-        }
-        
-        if (!updateSuccess) {
-          console.warn('⚠️ All update attempts failed, but continuing with assignment...');
-          console.log('💡 The seedling assignment was successful, but the request status could not be updated.');
-          console.log('💡 You may need to manually update the request status in the database.');
+      } catch (directError) {
+        console.error('❌ Direct notification API call failed:', directError);
+      }
+    }
+
+    // UPDATED SECTION: Update the planting request status to 'assigned_seedlings' with updatedAt timestamp
+    const currentTimestampISO = new Date().toISOString();
+    const updateData = {
+      request_status: 'assigned_seedlings',
+      assigned_at: currentTimestampISO,
+      assigned_by: user.id,
+      updatedAt: currentTimestampISO
+    };
+    
+    console.log('🔄 Updating planting request:', request.id);
+    console.log('📝 Update data:', updateData);
+    
+    try {
+      const updateResult = await apiService.updatePlantingRequest(request.id, updateData);
+      console.log('✅ Planting request update result:', updateResult);
+      
+      if (!updateResult.success && updateResult.success !== undefined) {
+        throw new Error(updateResult.error || 'Failed to update planting request');
+      }
+      
+      console.log('✅ Updated planting request status to assigned_seedlings with updatedAt timestamp');
+    } catch (firstError) {
+      console.warn('⚠️ First update attempt failed:', firstError.message);
+      console.log('🔄 Trying alternative method: Direct fetch with different endpoint patterns...');
+      
+      // Try alternative patterns if the API service method fails
+      const baseURL = 'https://reforestadmin-backend.vercel.app/api';
+      const possibleEndpoints = [
+        `${baseURL}/planting-requests/${request.id}`,
+        `${baseURL}/plantingRequests/${request.id}`,
+        `${baseURL}/requests/${request.id}`,
+        `${baseURL}/planting_requests/${request.id}`
+      ];
+      
+      let updateSuccess = false;
+      
+      for (const endpoint of possibleEndpoints) {
+        try {
+          console.log(`🔍 Trying endpoint: ${endpoint}`);
+          const response = await fetch(endpoint, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(updateData)
+          });
           
-          // Don't throw error - allow the process to continue
-          // The task assignment was successful, which is the critical operation
+          if (response.ok) {
+            console.log(`✅ Success with endpoint: ${endpoint}`);
+            updateSuccess = true;
+            break;
+          } else {
+            console.log(`❌ Failed with ${response.status}: ${endpoint}`);
+          }
+        } catch (err) {
+          console.log(`❌ Error with ${endpoint}:`, err.message);
         }
       }
-    } catch (updateError) {
-      console.error('❌ Unexpected error in update section:', updateError);
-      // Continue anyway - the task assignment was successful
-      console.warn('⚠️ Continuing despite update error...');
+      
+      if (!updateSuccess) {
+        console.warn('⚠️ All update attempts failed, but continuing with assignment...');
+        console.log('💡 The seedling assignment was successful, but the request status could not be updated.');
+        console.log('💡 You may need to manually update the request status in the database.');
+      }
     }
-  };
+  } catch (error) {
+    console.error('❌ Unexpected error in notification/update section:', error);
+    console.warn('⚠️ Continuing despite error...');
+  }
+};
 
   const handleAssignSeedling = (request) => {
     if (!currentRecommendation) {
