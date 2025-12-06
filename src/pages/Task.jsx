@@ -333,14 +333,22 @@ const SeedlingAssignmentPage = () => {
   };
 
   // Create notification for seedling assignment
+// Create notification for seedling assignment
 const createSeedlingAssignmentNotification = async (request, seedlingDetails) => {
   try {
-    // Create notification data matching the Firebase structure
+    // Create notification data matching the Firebase structure and Android app expectations
     const currentTimestamp = new Date();
+    
+    // Ensure userRef is in the correct format
+    const formattedUserRef = request.userRef.includes('/') 
+      ? request.userRef 
+      : `/users/${request.userRef}`;
+    
     const notificationData = {
       createdAt: currentTimestamp,
       data: {
         location_address: request.location_address || 'Unknown Location',
+        locationName: request.location_address || 'Unknown Location', // Android app looks for this
         recommendationId: currentRecommendation?.id || 'N/A',
         requestId: request.id,
         seedlingName: seedlingDetails.seedling_commonName || 'Unknown Seedling'
@@ -351,7 +359,7 @@ const createSeedlingAssignmentNotification = async (request, seedlingDetails) =>
       priority: 'high',
       read: false,
       targetRole: 'planter',
-      targetUser: request.userRef.includes('/') ? request.userRef : `/users/${request.userRef}`
+      targetUser: formattedUserRef
     };
 
     console.log('📧 Creating notification:', notificationData);
@@ -362,6 +370,7 @@ const createSeedlingAssignmentNotification = async (request, seedlingDetails) =>
       console.log('✅ Notification created successfully:', notificationResult);
     } catch (notifError) {
       console.error('❌ Error creating notification:', notifError);
+      
       // Try direct API call as fallback
       try {
         const response = await fetch('https://reforestadmin-backend.vercel.app/api/notifications', {
@@ -373,9 +382,11 @@ const createSeedlingAssignmentNotification = async (request, seedlingDetails) =>
         });
         
         if (response.ok) {
-          console.log('✅ Notification created via direct API call');
+          const result = await response.json();
+          console.log('✅ Notification created via direct API call:', result);
         } else {
-          console.warn('⚠️ Failed to create notification via direct API call');
+          const errorText = await response.text();
+          console.warn('⚠️ Failed to create notification via direct API call:', errorText);
         }
       } catch (directError) {
         console.error('❌ Direct notification API call failed:', directError);
@@ -452,7 +463,6 @@ const createSeedlingAssignmentNotification = async (request, seedlingDetails) =>
     console.warn('⚠️ Continuing despite error...');
   }
 };
-
   const handleAssignSeedling = (request) => {
     if (!currentRecommendation) {
       setAlert({ 
