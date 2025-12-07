@@ -70,7 +70,20 @@ const formatDisplayDateTime = (timestampInput) => {
     if (timestampInput && typeof timestampInput === 'object' && timestampInput.toDate) {
       dateObj = timestampInput.toDate();
     } else if (typeof timestampInput === 'string') {
-      dateObj = new Date(timestampInput);
+      // Check if string contains "at" pattern (Firestore format)
+      if (timestampInput.includes(' at ')) {
+        // Parse "December 6, 2025 at 5:04:29 PM UTC+8" format
+        const parts = timestampInput.split(' at ');
+        if (parts.length === 2) {
+          const datePart = parts[0];
+          const timePart = parts[1].replace(/\s*UTC[+-]\d+/, ''); // Remove timezone
+          dateObj = new Date(`${datePart} ${timePart}`);
+        } else {
+          dateObj = new Date(timestampInput);
+        }
+      } else {
+        dateObj = new Date(timestampInput);
+      }
     } else if (timestampInput instanceof Date) {
       dateObj = timestampInput;
     } else {
@@ -84,6 +97,7 @@ const formatDisplayDateTime = (timestampInput) => {
         year: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
+        second: '2-digit',
         hour12: true
       });
     }
