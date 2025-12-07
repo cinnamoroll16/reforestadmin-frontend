@@ -1,4 +1,4 @@
-// src/pages/Task.js - COMPLETE UPDATED CODE WITH updatedAt TIMESTAMP
+// src/pages/Task.jsx - WITH ADDED LOADING INDICATORS
 import React, { useState, useEffect } from 'react';
 import {
   Box, Typography, Paper, Button, Dialog, DialogTitle,
@@ -6,7 +6,7 @@ import {
   useMediaQuery, useTheme, TextField,
   LinearProgress, Toolbar, Chip, Card, CardContent, Stack, 
   IconButton, Container, alpha,
-  Avatar, Divider
+  Avatar, Divider, CircularProgress // Added CircularProgress import
 } from '@mui/material';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
@@ -21,7 +21,8 @@ import {
   Close as CloseIcon,
   Warning as WarningIcon,
   Info as InfoIcon,
-  Edit as EditIcon
+  Edit as EditIcon,
+  Refresh as RefreshIcon // Added RefreshIcon
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import { apiService } from '../services/api.js';
@@ -44,6 +45,7 @@ const SeedlingAssignmentPage = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [alert, setAlert] = useState({ open: false, message: '', severity: 'info' });
   const [recommendationLocation, setRecommendationLocation] = useState('Loading location...');
+  const [isRefreshing, setIsRefreshing] = useState(false); // Added for refresh state
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
@@ -300,6 +302,60 @@ const SeedlingAssignmentPage = () => {
     fetchData();
   }, []);
 
+  // Refresh data function
+  const handleRefreshData = async () => {
+    setIsRefreshing(true);
+    try {
+      console.log('🔄 Manually refreshing task data...');
+      
+      // Fetch planting tasks
+      const tasksData = await apiService.getPlantingTasks();
+      setPlantingTasks(tasksData);
+
+      // Fetch planting requests
+      const requestsData = await apiService.getPlantingRequests();
+      const approvedRequests = requestsData.filter(request => 
+        request.request_status === 'approved' || request.request_status === 'pending'
+      );
+
+      const enrichedRequests = await Promise.all(
+        approvedRequests.map(async (request) => {
+          const userEmail = await fetchUserEmail(request.userRef);
+          return {
+            id: request.id,
+            ...request,
+            fullName: request.fullName || 'Unknown User',
+            planterEmail: userEmail,
+            location_address: request.location_address || request.location || 'Unknown Location',
+            status: request.request_status,
+            request_date: request.request_date,
+            preferred_date: request.preferred_date,
+            reviewedAt: convertTimestamp(request.reviewedAt),
+            updatedAt: convertTimestamp(request.updatedAt)
+          };
+        })
+      );
+
+      setPlantingRequests(enrichedRequests);
+      
+      setAlert({
+        open: true,
+        message: 'Data refreshed successfully!',
+        severity: 'success'
+      });
+      
+    } catch (error) {
+      console.error('❌ Error refreshing data:', error);
+      setAlert({
+        open: true,
+        message: 'Failed to refresh data: ' + error.message,
+        severity: 'error'
+      });
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   // Get recommended seedlings
   const getRecommendedSeedlings = () => {
     if (!currentRecommendation || !seedlings || seedlings.length === 0) {
@@ -333,136 +389,48 @@ const SeedlingAssignmentPage = () => {
   };
 
   // Create notification for seedling assignment
-// Create notification for seedling assignment
-const createSeedlingAssignmentNotification = async (request, seedlingDetails) => {
-  try {
-    // Create notification data matching the Firebase structure and Android app expectations
-    const currentTimestamp = new Date();
-    
-    // Ensure userRef is in the correct format
-    const formattedUserRef = request.userRef.includes('/') 
-      ? request.userRef 
-      : `/users/${request.userRef}`;
-    
-    const notificationData = {
-      createdAt: currentTimestamp,
-      data: {
-        location_address: request.location_address || 'Unknown Location',
-        locationName: request.location_address || 'Unknown Location', // Android app looks for this
-        recommendationId: currentRecommendation?.id || 'N/A',
-        requestId: request.id,
-        seedlingName: seedlingDetails.seedling_commonName || 'Unknown Seedling'
-      },
-      notif_message: `Your seedling has been assigned for planting at ${request.location_address || 'your location'}`,
-      notif_timestamp: currentTimestamp,
-      notification_type: 'assigned_seedlings',
-      priority: 'high',
-      read: false,
-      targetRole: 'planter',
-      targetUser: formattedUserRef
-    };
-
-    console.log('📧 Creating notification:', notificationData);
-
-    // Create the notification using API service
+  const createSeedlingAssignmentNotification = async (request, seedlingDetails) => {
     try {
-      const notificationResult = await apiService.createNotification(notificationData);
-      console.log('✅ Notification created successfully:', notificationResult);
-    } catch (notifError) {
-      console.error('❌ Error creating notification:', notifError);
+      // Create notification data matching the Firebase structure and Android app expectations
+      const currentTimestamp = new Date();
       
-      // Try direct API call as fallback
+      // Ensure userRef is in the correct format
+      const formattedUserRef = request.userRef.includes('/') 
+        ? request.userRef 
+        : `/users/${request.userRef}`;
+      
+      const notificationData = {
+        createdAt: currentTimestamp,
+        data: {
+          location_address: request.location_address || 'Unknown Location',
+          locationName: request.location_address || 'Unknown Location', // Android app looks for this
+          recommendationId: currentRecommendation?.id || 'N/A',
+          requestId: request.id,
+          seedlingName: seedlingDetails.seedling_commonName || 'Unknown Seedling'
+        },
+        notif_message: `Your seedling has been assigned for planting at ${request.location_address || 'your location'}`,
+        notif_timestamp: currentTimestamp,
+        notification_type: 'assigned_seedlings',
+        priority: 'high',
+        read: false,
+        targetRole: 'planter',
+        targetUser: formattedUserRef
+      };
+
+      console.log('📧 Creating notification:', notificationData);
+
+      // Create the notification using API service
       try {
-        const response = await fetch('https://reforestadmin-backend.vercel.app/api/notifications', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(notificationData)
-        });
-        
-        if (response.ok) {
-          const result = await response.json();
-          console.log('✅ Notification created via direct API call:', result);
-        } else {
-          const errorText = await response.text();
-          console.warn('⚠️ Failed to create notification via direct API call:', errorText);
-        }
-      } catch (directError) {
-        console.error('❌ Direct notification API call failed:', directError);
+        const notificationResult = await apiService.createNotification(notificationData);
+        console.log('✅ Notification created successfully:', notificationResult);
+      } catch (notifError) {
+        console.error('❌ Error creating notification:', notifError);
       }
+    } catch (error) {
+      console.error('❌ Unexpected error in notification section:', error);
     }
+  };
 
-    // UPDATED SECTION: Update the planting request status to 'assigned_seedlings' with updatedAt timestamp
-    const currentTimestampISO = new Date().toISOString();
-    const updateData = {
-      request_status: 'assigned_seedlings',
-      assigned_at: currentTimestampISO,
-      assigned_by: user.id,
-      updatedAt: currentTimestampISO
-    };
-    
-    console.log('🔄 Updating planting request:', request.id);
-    console.log('📝 Update data:', updateData);
-    
-    try {
-      const updateResult = await apiService.updatePlantingRequest(request.id, updateData);
-      console.log('✅ Planting request update result:', updateResult);
-      
-      if (!updateResult.success && updateResult.success !== undefined) {
-        throw new Error(updateResult.error || 'Failed to update planting request');
-      }
-      
-      console.log('✅ Updated planting request status to assigned_seedlings with updatedAt timestamp');
-    } catch (firstError) {
-      console.warn('⚠️ First update attempt failed:', firstError.message);
-      console.log('🔄 Trying alternative method: Direct fetch with different endpoint patterns...');
-      
-      // Try alternative patterns if the API service method fails
-      const baseURL = 'https://reforestadmin-backend.vercel.app/api';
-      const possibleEndpoints = [
-        `${baseURL}/planting-requests/${request.id}`,
-        `${baseURL}/plantingRequests/${request.id}`,
-        `${baseURL}/requests/${request.id}`,
-        `${baseURL}/planting_requests/${request.id}`
-      ];
-      
-      let updateSuccess = false;
-      
-      for (const endpoint of possibleEndpoints) {
-        try {
-          console.log(`🔍 Trying endpoint: ${endpoint}`);
-          const response = await fetch(endpoint, {
-            method: 'PATCH',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(updateData)
-          });
-          
-          if (response.ok) {
-            console.log(`✅ Success with endpoint: ${endpoint}`);
-            updateSuccess = true;
-            break;
-          } else {
-            console.log(`❌ Failed with ${response.status}: ${endpoint}`);
-          }
-        } catch (err) {
-          console.log(`❌ Error with ${endpoint}:`, err.message);
-        }
-      }
-      
-      if (!updateSuccess) {
-        console.warn('⚠️ All update attempts failed, but continuing with assignment...');
-        console.log('💡 The seedling assignment was successful, but the request status could not be updated.');
-        console.log('💡 You may need to manually update the request status in the database.');
-      }
-    }
-  } catch (error) {
-    console.error('❌ Unexpected error in notification/update section:', error);
-    console.warn('⚠️ Continuing despite error...');
-  }
-};
   const handleAssignSeedling = (request) => {
     if (!currentRecommendation) {
       setAlert({ 
@@ -476,7 +444,7 @@ const createSeedlingAssignmentNotification = async (request, seedlingDetails) =>
     setAssignDialogOpen(true);
   };
   
-  // Confirm seedling assignment with updatedAt timestamp - COMPLETE CORRECTED VERSION
+  // Confirm seedling assignment with updatedAt timestamp
   const handleConfirmAssignment = async () => {
     try {
       if (!selectedRequest || !currentRecommendation) return;
@@ -691,102 +659,98 @@ const createSeedlingAssignmentNotification = async (request, seedlingDetails) =>
 
       console.log('✅ Task assignment complete');
 
-      // UPDATED SECTION: Update the planting request status to 'assigned_seedlings' with updatedAt timestamp
-    try {
-      const currentTimestamp = new Date().toISOString();
-      const updateData = {
-        request_status: 'assigned_seedlings',
-        assigned_at: currentTimestamp,
-        assigned_by: user.id,
-        updatedAt: currentTimestamp
-      };
-      
-      console.log('🔄 Updating planting request:', selectedRequest.id);
-      console.log('📝 Update data:', updateData);
-      
-      const updateResult = await apiService.updatePlantingRequest(selectedRequest.id, updateData);
-      console.log('✅ Planting request update result:', updateResult);
-      
-      if (!updateResult.success) {
-        throw new Error(updateResult.error || 'Failed to update planting request');
+      // Update the planting request status to 'assigned_seedlings' with updatedAt timestamp
+      try {
+        const currentTimestamp = new Date().toISOString();
+        const updateData = {
+          request_status: 'assigned_seedlings',
+          assigned_at: currentTimestamp,
+          assigned_by: user.id,
+          updatedAt: currentTimestamp
+        };
+        
+        console.log('🔄 Updating planting request:', selectedRequest.id);
+        console.log('📝 Update data:', updateData);
+        
+        const updateResult = await apiService.updatePlantingRequest(selectedRequest.id, updateData);
+        console.log('✅ Planting request update result:', updateResult);
+        
+        if (!updateResult.success) {
+          throw new Error(updateResult.error || 'Failed to update planting request');
+        }
+        
+        console.log('✅ Updated planting request status to assigned_seedlings with updatedAt timestamp');
+      } catch (updateError) {
+        console.error('❌ Error updating planting request status:', updateError);
+        setAlert({ 
+          open: true, 
+          message: `Failed to update request status: ${updateError.message}`, 
+          severity: 'error' 
+        });
+        return;
       }
+
+      // Create notification with proper Firestore format
+      await createSeedlingAssignmentNotification(selectedRequest, seedlingsToAssign[0]);
+
+      // IMPORTANT: Force refresh all data to reflect the changes
+      setIsRefreshing(true);
       
-      console.log('✅ Updated planting request status to assigned_seedlings with updatedAt timestamp');
-    } catch (updateError) {
-      console.error('❌ Error updating planting request status:', updateError);
+      try {
+        // Refresh planting tasks data
+        const updatedTasks = await apiService.getPlantingTasks();
+        setPlantingTasks(updatedTasks);
+
+        // Fetch fresh planting requests data
+        const updatedRequests = await apiService.getPlantingRequests();
+        console.log('🔄 Refreshed planting requests:', updatedRequests.length);
+        
+        // Filter for approved/pending requests and enrich with user email
+        const filteredRequests = updatedRequests.filter(request => 
+          request.request_status === 'approved' || 
+          request.request_status === 'pending'
+        );
+
+        const enrichedRequests = await Promise.all(
+          filteredRequests.map(async (request) => {
+            const userEmail = await fetchUserEmail(request.userRef);
+            return {
+              id: request.id,
+              ...request,
+              fullName: request.fullName || 'Unknown User',
+              planterEmail: userEmail,
+              location_address: request.location_address || request.location || 'Unknown Location',
+              status: request.request_status,
+              request_date: request.request_date,
+              preferred_date: request.preferred_date,
+              reviewedAt: convertTimestamp(request.reviewedAt),
+              updatedAt: convertTimestamp(request.updatedAt)
+            };
+          })
+        );
+
+        setPlantingRequests(enrichedRequests);
+        console.log('✅ Updated planting requests state with', enrichedRequests.length, 'requests');
+
+      } catch (refreshError) {
+        console.error('❌ Error refreshing data:', refreshError);
+      } finally {
+        setIsRefreshing(false);
+      }
+
+      setAssignDialogOpen(false);
+      setSelectedRequest(null);
       setAlert({ 
         open: true, 
-        message: `Failed to update request status: ${updateError.message}`, 
-        severity: 'error' 
+        message: `${seedlingsToAssign.length} seedling(s) assigned to ${selectedRequest.fullName} successfully! Request removed from pending list.`, 
+        severity: 'success' 
       });
-      return; // Stop the process if this fails
+    } catch (err) {
+      console.error('❌ Error assigning seedling:', err);
+      setAlert({ open: true, message: err.message, severity: 'error' });
+      setIsRefreshing(false);
     }
-
-    // Create notification with proper Firestore format
-    await createSeedlingAssignmentNotification(selectedRequest, seedlingsToAssign[0]);
-
-    // IMPORTANT: Force refresh all data to reflect the changes
-    setLoading(true);
-    
-    try {
-      // Refresh planting tasks data
-      const updatedTasks = await apiService.getPlantingTasks();
-      setPlantingTasks(updatedTasks);
-
-      // Force clear cache and refresh planting requests
-      apiService.clearAllCache();
-      
-      // Fetch fresh planting requests data
-      const updatedRequests = await apiService.getPlantingRequests();
-      console.log('🔄 Refreshed planting requests:', updatedRequests.length);
-      
-      // Filter for approved/pending requests and enrich with user email
-      const filteredRequests = updatedRequests.filter(request => 
-        request.request_status === 'approved' || 
-        request.request_status === 'pending'
-      );
-
-      const enrichedRequests = await Promise.all(
-        filteredRequests.map(async (request) => {
-          const userEmail = await fetchUserEmail(request.userRef);
-          return {
-            id: request.id,
-            ...request,
-            fullName: request.fullName || 'Unknown User',
-            planterEmail: userEmail,
-            location_address: request.location_address || request.location || 'Unknown Location',
-            status: request.request_status,
-            request_date: request.request_date,
-            preferred_date: request.preferred_date,
-            reviewedAt: convertTimestamp(request.reviewedAt),
-            updatedAt: convertTimestamp(request.updatedAt)
-          };
-        })
-      );
-
-      setPlantingRequests(enrichedRequests);
-      console.log('✅ Updated planting requests state with', enrichedRequests.length, 'requests');
-
-    } catch (refreshError) {
-      console.error('❌ Error refreshing data:', refreshError);
-      // Continue anyway - the update was successful
-    } finally {
-      setLoading(false);
-    }
-
-    setAssignDialogOpen(false);
-    setSelectedRequest(null);
-    setAlert({ 
-      open: true, 
-      message: `${seedlingsToAssign.length} seedling(s) assigned to ${selectedRequest.fullName} successfully! Request removed from pending list.`, 
-      severity: 'success' 
-    });
-  } catch (err) {
-    console.error('❌ Error assigning seedling:', err);
-    setAlert({ open: true, message: err.message, severity: 'error' });
-    setLoading(false);
-  }
-};
+  };
 
   // Handle view request details
   const handleViewRequest = (request) => {
@@ -1047,8 +1011,13 @@ const createSeedlingAssignmentNotification = async (request, seedlingDetails) =>
         <Navigation mobileOpen={mobileOpen} handleDrawerToggle={handleDrawerToggle} isMobile={isMobile} />
         <Box component="main" sx={{ flexGrow: 1, p: 3, width: { md: `calc(100% - ${drawerWidth}px)` } }}>
           <Toolbar />
-          <LinearProgress sx={{ color: '#2e7d32' }} />
-          <Typography sx={{ mt: 2 }}>Loading assignment data...</Typography>
+          {/* YOUR REQUESTED LOADING INDICATOR 1 */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 300 }}>
+            <CircularProgress sx={{ mb: 2 }} />
+            <Typography variant="body1" color="textSecondary">
+              Loading task assignment data from backend...
+            </Typography>
+          </Box>
         </Box>
       </Box>
     );
@@ -1072,6 +1041,9 @@ const createSeedlingAssignmentNotification = async (request, seedlingDetails) =>
               {alert.message}
             </Alert>
           )}
+
+          {/* YOUR REQUESTED LOADING INDICATOR 2 */}
+          {(isRefreshing) && <LinearProgress sx={{ mb: 2 }} />}
 
           {/* COMPACT GREEN BACKGROUND DESIGN */}
           <Paper 
@@ -1379,6 +1351,31 @@ const createSeedlingAssignmentNotification = async (request, seedlingDetails) =>
                   }
                 </Typography>
               </Box>
+              
+              {/* Refresh Button */}
+              <Button
+                variant="outlined"
+                startIcon={<RefreshIcon />}
+                onClick={handleRefreshData}
+                disabled={isRefreshing}
+                sx={{
+                  borderRadius: 2,
+                  textTransform: 'none',
+                  fontWeight: 600,
+                  borderColor: '#2e7d32',
+                  color: '#2e7d32',
+                  '&:hover': {
+                    borderColor: '#1b5e20',
+                    bgcolor: alpha('#2e7d32', 0.05)
+                  },
+                  '&:disabled': {
+                    borderColor: '#a5d6a7',
+                    color: '#a5d6a7'
+                  }
+                }}
+              >
+                {isRefreshing ? 'Refreshing...' : 'Refresh Data'}
+              </Button>
             </Box>
               
             {/* Search and Filters with Notification Chips */}
@@ -1661,17 +1658,20 @@ const createSeedlingAssignmentNotification = async (request, seedlingDetails) =>
               variant="contained" 
               color="success"
               onClick={handleConfirmAssignment}
-              disabled={!selectedRequest || getRecommendedSeedlings().length === 0}
+              disabled={!selectedRequest || getRecommendedSeedlings().length === 0 || isRefreshing}
               sx={{ 
                 minWidth: '160px',
                 fontWeight: 600,
                 bgcolor: '#2e7d32',
                 '&:hover': {
                   bgcolor: '#1b5e20'
+                },
+                '&:disabled': {
+                  bgcolor: '#a5d6a7'
                 }
               }}
             >
-              Confirm & Notify
+              {isRefreshing ? 'Assigning...' : 'Confirm & Notify'}
             </Button>
           </DialogActions>
         </Dialog>
