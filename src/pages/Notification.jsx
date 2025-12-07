@@ -1,5 +1,5 @@
-// src/pages/Notification.js - UPDATED VERSION
-import React, { useState, useEffect } from 'react';
+// src/pages/Notification.js - FIXED VERSION
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box, Typography, Paper, Button, Chip, Dialog, DialogTitle, DialogContent,
   DialogActions, Grid, Alert, IconButton,
@@ -514,6 +514,7 @@ const fetchPlantingRecords = async (plantingRequests) => {
     return [];  
   }
 };
+
 // =============================================================================
 // MAIN COMPONENT
 // =============================================================================
@@ -546,8 +547,8 @@ const NotificationPanel = () => {
     setActiveTab(newValue);
   };
 
-  // Data loading
-  const loadData = async () => {
+  // Data loading wrapped in useCallback to prevent infinite loops
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
 
@@ -598,19 +599,19 @@ const NotificationPanel = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []); // Empty dependency array since loadData doesn't depend on any props or state
 
   useEffect(() => {
     loadData();
 
     const pollInterval = setInterval(() => {
       loadData();
-    }, 30000);
+    }, 30000); // Poll every 30 seconds
 
     return () => {
       clearInterval(pollInterval);
     };
-  }, []);
+  }, [loadData]); // Now properly depends on loadData
 
   const handleViewDetails = (request) => {
     setSelectedRequest(request);
@@ -623,54 +624,55 @@ const NotificationPanel = () => {
   };
 
   const handleNotificationClick = async (notification) => {
-  // Mark as read when clicked
-  if (!notification.read) {
-    setNotifications(prev => prev.map(n => 
-      n.id === notification.id ? { ...n, read: true } : n
-    ));
-    
-    // If it's a real notification, update via API
-    if (notification.isRealNotification) {
-      try {
-        await apiService.updateNotification(notification.id, {
-          isRead: true,
-          read: true,
-          updatedAt: new Date().toISOString()
-        });
-      } catch (error) {
-        console.error('Error marking notification as read:', error);
+    // Mark as read when clicked
+    if (!notification.read) {
+      setNotifications(prev => prev.map(n => 
+        n.id === notification.id ? { ...n, read: true } : n
+      ));
+      
+      // If it's a real notification, update via API
+      if (notification.isRealNotification) {
+        try {
+          await apiService.updateNotification(notification.id, {
+            isRead: true,
+            read: true,
+            updatedAt: new Date().toISOString()
+          });
+        } catch (error) {
+          console.error('Error marking notification as read:', error);
+        }
       }
+      
+      setAlert({
+        open: true,
+        message: 'Notification marked as read',
+        severity: 'success'
+      });
     }
-    
-    setAlert({
-      open: true,
-      message: 'Notification marked as read',
-      severity: 'success'
-    });
-  }
 
-  // Handle different notification types
-  if (notification.type === 'plant_request' || notification.type === 'request_submitted') {
-    const requestId = notification.data?.plantRequestId || notification.requestId;
-    const request = plantingRequests.find(req => 
-      req.id === requestId || req.requestId === requestId
-    );
-    if (request) {
-      setSelectedRequest(request);
-      setDetailDialogOpen(true);
+    // Handle different notification types
+    if (notification.type === 'plant_request' || notification.type === 'request_submitted') {
+      const requestId = notification.data?.plantRequestId || notification.requestId;
+      const request = plantingRequests.find(req => 
+        req.id === requestId || req.requestId === requestId
+      );
+      if (request) {
+        setSelectedRequest(request);
+        setDetailDialogOpen(true);
+      }
+    } else if (notification.type === 'planting_record') {
+      const recordId = notification.data?.plantingRecordId;
+      const record = plantingRecords.find(rec => rec.id === recordId);
+      if (record) {
+        setSelectedRecord(record);
+        setRecordDialogOpen(true);
+      }
+    } else {
+      setSelectedNotification(notification);
+      setNotificationDialogOpen(true);
     }
-  } else if (notification.type === 'planting_record') {
-    const recordId = notification.data?.plantingRecordId;
-    const record = plantingRecords.find(rec => rec.id === recordId);
-    if (record) {
-      setSelectedRecord(record);
-      setRecordDialogOpen(true);
-    }
-  } else {
-    setSelectedNotification(notification);
-    setNotificationDialogOpen(true);
-  }
-};
+  };
+
   const handleMarkAllAsRead = async () => {
     try {
       setSaving(true);
@@ -800,134 +802,135 @@ const NotificationPanel = () => {
   const plantingRequestUnreadCount = plantingRequestNotifications.filter(n => !n.read).length;
 
   const NotificationRow = ({ notification }) => (
-  <Paper 
-    sx={{ 
-      p: 2.5, 
-      mb: 1.5,
-      borderRadius: 2,
-      borderLeft: `4px solid ${
-        notification.type === 'plant_request' || notification.type === 'request_submitted' ? theme.palette.warning.main :
-        notification.type === 'planting_record' ? theme.palette.success.main :
-        notification.type === 'request_approved' ? theme.palette.success.main :
-        notification.type === 'request_rejected' ? theme.palette.error.main :
-        theme.palette.info.main
-      }`,
-      backgroundColor: notification.read ? 'background.paper' : alpha(theme.palette.primary.main, 0.05),
-      cursor: 'pointer',
-      transition: 'all 0.2s ease-in-out',
-      position: 'relative',
-      '&:hover': { 
-        transform: 'translateY(-2px)',
-        boxShadow: 3,
-        backgroundColor: notification.read ? 
-          alpha(theme.palette.primary.main, 0.02) : 
-          alpha(theme.palette.primary.main, 0.08)
-      }
-    }}
-    onClick={() => handleNotificationClick(notification)}
-  >
-    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
-      {/* Unread indicator dot */}
-      {!notification.read && (
-        <Box sx={{ 
-          position: 'absolute',
-          top: 12,
-          right: 12,
-        }}>
-          <FiberManualRecordIcon 
-            sx={{ 
-              fontSize: 12, 
-              color: 'primary.main',
-              animation: 'pulse 2s ease-in-out infinite',
-              '@keyframes pulse': {
-                '0%, 100%': { opacity: 1 },
-                '50%': { opacity: 0.5 }
-              }
-            }} 
-          />
-        </Box>
-      )}
+    <Paper 
+      sx={{ 
+        p: 2.5, 
+        mb: 1.5,
+        borderRadius: 2,
+        borderLeft: `4px solid ${
+          notification.type === 'plant_request' || notification.type === 'request_submitted' ? theme.palette.warning.main :
+          notification.type === 'planting_record' ? theme.palette.success.main :
+          notification.type === 'request_approved' ? theme.palette.success.main :
+          notification.type === 'request_rejected' ? theme.palette.error.main :
+          theme.palette.info.main
+        }`,
+        backgroundColor: notification.read ? 'background.paper' : alpha(theme.palette.primary.main, 0.05),
+        cursor: 'pointer',
+        transition: 'all 0.2s ease-in-out',
+        position: 'relative',
+        '&:hover': { 
+          transform: 'translateY(-2px)',
+          boxShadow: 3,
+          backgroundColor: notification.read ? 
+            alpha(theme.palette.primary.main, 0.02) : 
+            alpha(theme.palette.primary.main, 0.08)
+        }
+      }}
+      onClick={() => handleNotificationClick(notification)}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+        {/* Unread indicator dot */}
+        {!notification.read && (
+          <Box sx={{ 
+            position: 'absolute',
+            top: 12,
+            right: 12,
+          }}>
+            <FiberManualRecordIcon 
+              sx={{ 
+                fontSize: 12, 
+                color: 'primary.main',
+                animation: 'pulse 2s ease-in-out infinite',
+                '@keyframes pulse': {
+                  '0%, 100%': { opacity: 1 },
+                  '50%': { opacity: 0.5 }
+                }
+              }} 
+            />
+          </Box>
+        )}
 
-      <Box sx={{ 
-        color: notification.read ? 'text.secondary' : 
-          (notification.type === 'plant_request' || notification.type === 'request_submitted') ? 'warning.main' :
-          notification.type === 'planting_record' ? 'success.main' : 
-          notification.type === 'request_approved' ? 'success.main' :
-          notification.type === 'request_rejected' ? 'error.main' :
-          'primary.main',
-        mt: 0.5
-      }}>
-        {getNotificationIcon(notification.type)}
-      </Box>
-      
-      <Box sx={{ flex: 1, pr: 3 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexWrap: 'wrap' }}>
+        <Box sx={{ 
+          color: notification.read ? 'text.secondary' : 
+            (notification.type === 'plant_request' || notification.type === 'request_submitted') ? 'warning.main' :
+            notification.type === 'planting_record' ? 'success.main' : 
+            notification.type === 'request_approved' ? 'success.main' :
+            notification.type === 'request_rejected' ? 'error.main' :
+            'primary.main',
+          mt: 0.5
+        }}>
+          {getNotificationIcon(notification.type)}
+        </Box>
+        
+        <Box sx={{ flex: 1, pr: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexWrap: 'wrap' }}>
+            <Typography 
+              variant="subtitle1" 
+              sx={{ 
+                fontWeight: notification.read ? 500 : 700,
+                color: notification.read ? 'text.primary' : 
+                  (notification.type === 'plant_request' || notification.type === 'request_submitted') ? 'warning.main' :
+                  notification.type === 'planting_record' ? 'success.main' : 
+                  notification.type === 'request_approved' ? 'success.main' :
+                  notification.type === 'request_rejected' ? 'error.main' :
+                  'primary.main'
+              }}
+            >
+              {notification.title}
+            </Typography>
+            <Chip 
+              label={formatType(notification.type)} 
+              size="small" 
+              color={getStatusColor(notification.type === 'request_submitted' ? 'submitted' : notification.type)}
+              variant="outlined"
+              sx={{ fontWeight: 500 }}
+            />
+            {!notification.read && (
+              <Chip 
+                label="New" 
+                size="small" 
+                color="primary"
+                variant="filled"
+                sx={{ 
+                  fontWeight: 600,
+                  height: 20,
+                  fontSize: '0.7rem'
+                }}
+              />
+            )}
+          </Box>
+          
           <Typography 
-            variant="subtitle1" 
+            variant="body2" 
+            color={notification.read ? 'text.secondary' : 'text.primary'}
             sx={{ 
-              fontWeight: notification.read ? 500 : 700,
-              color: notification.read ? 'text.primary' : 
-                (notification.type === 'plant_request' || notification.type === 'request_submitted') ? 'warning.main' :
-                notification.type === 'planting_record' ? 'success.main' : 
-                notification.type === 'request_approved' ? 'success.main' :
-                notification.type === 'request_rejected' ? 'error.main' :
-                'primary.main'
+              mb: 1.5,
+              fontWeight: notification.read ? 400 : 500
             }}
           >
-            {notification.title}
+            {notification.notif_message || notification.message}
           </Typography>
-          <Chip 
-            label={formatType(notification.type)} 
-            size="small" 
-            color={getStatusColor(notification.type === 'request_submitted' ? 'submitted' : notification.type)}
-            variant="outlined"
-            sx={{ fontWeight: 500 }}
-          />
-          {!notification.read && (
-            <Chip 
-              label="New" 
-              size="small" 
-              color="primary"
-              variant="filled"
-              sx={{ 
-                fontWeight: 600,
-                height: 20,
-                fontSize: '0.7rem'
-              }}
-            />
-          )}
-        </Box>
-        
-        <Typography 
-          variant="body2" 
-          color={notification.read ? 'text.secondary' : 'text.primary'}
-          sx={{ 
-            mb: 1.5,
-            fontWeight: notification.read ? 400 : 500
-          }}
-        >
-          {notification.notif_message || notification.message}
-        </Typography>
-        
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-          <Typography variant="caption" color="text.secondary">
-            {formatDateTime(notification.timestamp)}
-          </Typography>
-          {notification.fullName && (
+          
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
             <Typography variant="caption" color="text.secondary">
-              • By: {notification.fullName}
+              {formatDateTime(notification.timestamp)}
             </Typography>
-          )}
-          {notification.location && (
-            <Typography variant="caption" color="text.secondary">
-              • Location: {notification.location}
-            </Typography>
-          )}
+            {notification.fullName && (
+              <Typography variant="caption" color="text.secondary">
+                • By: {notification.fullName}
+              </Typography>
+            )}
+            {notification.location && (
+              <Typography variant="caption" color="text.secondary">
+                • Location: {notification.location}
+              </Typography>
+            )}
+          </Box>
         </Box>
       </Box>
-    </Box>
-  </Paper>
-);
+    </Paper>
+  );
+
   const EmptyState = ({ icon: Icon, title, description }) => (
     <Paper sx={{ textAlign: 'center', p: 6, borderRadius: 2 }}>
       <Icon sx={{ fontSize: 64, color: '#ccc', mb: 2 }} />
