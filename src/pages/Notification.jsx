@@ -231,7 +231,38 @@ const fetchSeedlingData = async (seedlingRef, taskData) => {
     return { seedlingName: seedlingRef || 'Unknown Seedling' };
   }
 };
-
+// Move this BEFORE fetchNotifications() function
+const fetchAssignedSeedlingsNotifications = async () => {
+  try {
+    console.log('📡 Fetching assigned_seedlings notifications...');
+    
+    let response = await apiService.getAssignedSeedlingsNotifications();
+    
+    let notifications = Array.isArray(response) ? response : 
+                       response?.notifications || response?.data || [];
+    
+    return notifications.map(notification => ({
+      id: notification.notificationId || notification.id,
+      type: 'assigned_seedlings',
+      title: 'Seedling Assignment',
+      message: notification.message || notification.notificationText,
+      seedlingName: notification.seedlingName,
+      location_address: notification.location_address,
+      locationName: notification.locationName,
+      requestId: notification.requestId,
+      recommendationId: notification.recommendationId,
+      timestamp: notification.timestamp || notification.created_at,
+      isRead: notification.isRead || false,
+      priority: notification.priority || 'high',
+      recipient_role: notification.recipient_role || 'planter',
+      userId: notification.userRef,
+      isRealNotification: true
+    }));
+  } catch (error) {
+    console.error('❌ Failed to load assigned_seedlings notifications:', error);
+    return [];
+  }
+};
 // =============================================================================
 // DATA FETCHING FUNCTIONS
 // =============================================================================
@@ -270,37 +301,7 @@ const fetchNotifications = async () => {
     
     console.log(`✅ Found ${notifications.length} raw notifications`);
     // Add this function
-    const fetchAssignedSeedlingsNotifications = async () => {
-      try {
-        console.log('📡 Fetching assigned_seedlings notifications...');
-        
-        let response = await apiService.getAssignedSeedlingsNotifications(); // New API call
-        
-        let notifications = Array.isArray(response) ? response : 
-                           response?.notifications || response?.data || [];
-        
-        return notifications.map(notification => ({
-          id: notification.notificationId || notification.id,
-          type: 'assigned_seedlings',
-          title: 'Seedling Assignment',
-          message: notification.message || notification.notificationText,
-          seedlingName: notification.seedlingName,
-          location_address: notification.location_address,
-          locationName: notification.locationName,
-          requestId: notification.requestId,
-          recommendationId: notification.recommendationId,
-          timestamp: notification.timestamp || notification.created_at,
-          isRead: notification.isRead || false,
-          priority: notification.priority || 'high',
-          recipient_role: notification.recipient_role || 'planter',
-          userId: notification.userRef,
-          isRealNotification: true
-        }));
-      } catch (error) {
-        console.error('❌ Failed to load assigned_seedlings notifications:', error);
-        return [];
-      }
-    };
+    
     // Transform notifications to match your data structure
     const transformedNotifications = await Promise.all(
       notifications.map(async (notification) => {
