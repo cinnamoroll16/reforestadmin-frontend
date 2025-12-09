@@ -269,7 +269,38 @@ const fetchNotifications = async () => {
     }
     
     console.log(`✅ Found ${notifications.length} raw notifications`);
-    
+    // Add this function
+    const fetchAssignedSeedlingsNotifications = async () => {
+      try {
+        console.log('📡 Fetching assigned_seedlings notifications...');
+        
+        let response = await apiService.getAssignedSeedlingsNotifications(); // New API call
+        
+        let notifications = Array.isArray(response) ? response : 
+                           response?.notifications || response?.data || [];
+        
+        return notifications.map(notification => ({
+          id: notification.notificationId || notification.id,
+          type: 'assigned_seedlings',
+          title: 'Seedling Assignment',
+          message: notification.message || notification.notificationText,
+          seedlingName: notification.seedlingName,
+          location_address: notification.location_address,
+          locationName: notification.locationName,
+          requestId: notification.requestId,
+          recommendationId: notification.recommendationId,
+          timestamp: notification.timestamp || notification.created_at,
+          isRead: notification.isRead || false,
+          priority: notification.priority || 'high',
+          recipient_role: notification.recipient_role || 'planter',
+          userId: notification.userRef,
+          isRealNotification: true
+        }));
+      } catch (error) {
+        console.error('❌ Failed to load assigned_seedlings notifications:', error);
+        return [];
+      }
+    };
     // Transform notifications to match your data structure
     const transformedNotifications = await Promise.all(
       notifications.map(async (notification) => {
@@ -555,7 +586,11 @@ const NotificationPanel = () => {
       console.log('🔄 Loading all data...');
 
       // First fetch notifications and planting requests
-      const [notificationsData, requestsData] = await Promise.all([
+      const [
+        notificationsData,
+        requestsData,
+        assignedSeedlingsData
+      ] = await Promise.all([
         fetchNotifications().catch(error => {
           console.error('❌ Failed to load notifications:', error);
           return [];
@@ -563,16 +598,19 @@ const NotificationPanel = () => {
         fetchPlantingRequests().catch(error => {
           console.error('❌ Failed to load planting requests:', error);
           return [];
+        }),
+        fetchAssignedSeedlingsNotifications().catch(error => {
+          console.error('❌ Failed to load assigned seedlings notifications:', error);
+          return [];
         })
       ]);
-
       // Then fetch planting records using the planting requests data
       const recordsData = await fetchPlantingRecords(requestsData).catch(error => {
         console.error('❌ Failed to load planting records:', error);
         return [];
       });
 
-      setNotifications(notificationsData);
+      setNotifications([...notificationsData, ...assignedSeedlingsData]);
       setPlantingRequests(requestsData);
       setPlantingRecords(recordsData);
 
