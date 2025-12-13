@@ -388,46 +388,53 @@ const SeedlingAssignmentPage = () => {
     }).length
   };
 
-  // Create notification for seedling assignment
+  // Create notification for seedling assignment - UPDATED TO MATCH TARGET FORMAT
   const createSeedlingAssignmentNotification = async (request, seedlingDetails) => {
     try {
-      // Create notification data matching the Firebase structure and Android app expectations
-      const currentTimestamp = new Date();
+      console.log('📧 Creating seedling assignment notification...');
       
       // Ensure userRef is in the correct format
       const formattedUserRef = request.userRef.includes('/') 
         ? request.userRef 
         : `/users/${request.userRef}`;
       
+      // Get current timestamp in Firestore format
+      const currentTimestamp = new Date();
+      
+      // Create the notification data matching your target structure
       const notificationData = {
-        createdAt: currentTimestamp,
-        data: {
+        createdAt: currentTimestamp, // This should be a Firestore Timestamp
+        data: { // This is the 'data' field as a map
+          locationName: request.location_address || 'Unknown Location',
           location_address: request.location_address || 'Unknown Location',
-          locationName: request.location_address || 'Unknown Location', // Android app looks for this
           recommendationId: currentRecommendation?.id || 'N/A',
           requestId: request.id,
           seedlingName: seedlingDetails.seedling_commonName || 'Unknown Seedling'
         },
         notif_message: `Your seedling has been assigned for planting at ${request.location_address || 'your location'}`,
-        notif_timestamp: currentTimestamp,
+        notif_timestamp: currentTimestamp, // This should be a Firestore Timestamp
         notification_type: 'assigned_seedlings',
         priority: 'high',
-        read: false,
+        read: true, // Changed from false to true to match your target
         targetRole: 'planter',
         targetUser: formattedUserRef
       };
-
-      console.log('📧 Creating notification:', notificationData);
-
+  
+      console.log('📧 Notification data to create:', notificationData);
+      console.log('📧 Target user:', formattedUserRef);
+  
       // Create the notification using API service
       try {
         const notificationResult = await apiService.createNotification(notificationData);
         console.log('✅ Notification created successfully:', notificationResult);
+        return notificationResult;
       } catch (notifError) {
         console.error('❌ Error creating notification:', notifError);
+        throw notifError;
       }
     } catch (error) {
       console.error('❌ Unexpected error in notification section:', error);
+      throw error;
     }
   };
 
