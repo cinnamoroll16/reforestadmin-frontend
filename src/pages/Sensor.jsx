@@ -1,4 +1,4 @@
-// src/pages/Sensors.js - UPDATED WITH ONE-TIME DATASET SYSTEM
+// src/pages/Sensor.jsx - UPDATED WITH ONE-TIME DATASET SYSTEM
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { apiService } from '../services/api';
 import {
