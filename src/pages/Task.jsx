@@ -1,4 +1,4 @@
-// src/pages/Task.jsx - WITH ADDED LOADING INDICATORS
+// src/pages/Task.jsx - WITH UPDATED LOADING STATE
 import React, { useState, useEffect } from 'react';
 import {
   Box, Typography, Paper, Button, Dialog, DialogTitle,
@@ -187,7 +187,7 @@ const SeedlingAssignmentPage = () => {
   useEffect(() => {
     const fetchRecommendation = async () => {
       if (!recoId) {
-        setLoading(false);
+        // Don't set loading false here - wait for main data to load
         return;
       }
 
@@ -202,7 +202,6 @@ const SeedlingAssignmentPage = () => {
             message: 'Recommendation not found', 
             severity: 'error' 
           });
-          setLoading(false);
           return;
         }
 
@@ -1010,7 +1009,7 @@ const SeedlingAssignmentPage = () => {
     );
   };
 
-  // Loading state
+  // Loading state - SHOW ONLY THE REQUESTED CONTENT
   if (loading) {
     return (
       <Box sx={{ display: 'flex', bgcolor: '#f5f7fa', minHeight: '100vh' }}>
@@ -1018,13 +1017,197 @@ const SeedlingAssignmentPage = () => {
         <Navigation mobileOpen={mobileOpen} handleDrawerToggle={handleDrawerToggle} isMobile={isMobile} />
         <Box component="main" sx={{ flexGrow: 1, p: 3, width: { md: `calc(100% - ${drawerWidth}px)` } }}>
           <Toolbar />
-          {/* YOUR REQUESTED LOADING INDICATOR 1 */}
-          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 300 }}>
-            <CircularProgress sx={{ mb: 2 }} />
-            <Typography variant="body1" color="textSecondary">
-              Loading task assignment data from backend...
-            </Typography>
-          </Box>
+          
+          <Container maxWidth="xl" sx={{ py: 2 }}>
+            {/* COMPACT GREEN BACKGROUND DESIGN - LOADING STATE */}
+            <Paper 
+              elevation={0}
+              sx={{
+                background: '#2e7d32',
+                borderRadius: 2,
+                boxShadow: '0 2px 12px rgba(46, 125, 50, 0.3)',
+                overflow: 'hidden',
+                mb: 3,
+                color: 'white'
+              }}
+            >
+              <Box sx={{ p: 3 }}>
+                <Grid container spacing={3} alignItems="center">
+                  {/* Left Content */}
+                  <Grid item xs={12} lg={8}>
+                    <Stack spacing={2.5}>
+                      
+                      {/* Header */}
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <Box sx={{
+                          bgcolor: 'rgba(255,255,255,0.2)',
+                          p: 1,
+                          borderRadius: 1.5,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          backdropFilter: 'blur(10px)'
+                        }}>
+                          <TreeIcon sx={{ fontSize: 20, color: 'white' }} />
+                        </Box>
+                        <Box>
+                          <Typography variant="overline" sx={{
+                            color: 'rgba(255,255,255,0.9)',
+                            fontSize: '0.7rem',
+                            letterSpacing: 1.2,
+                            fontWeight: 600,
+                            display: 'block',
+                            mb: 0.25
+                          }}>
+                            READY TO ASSIGN
+                          </Typography>
+                          <Typography variant="h6" fontWeight="700" color="white">
+                            Select Recommendation
+                          </Typography>
+                        </Box>
+                      </Box>
+
+                      {/* Empty State - Same as after loading */}
+                      <Box sx={{ textAlign: 'center', py: 1 }}>
+                        <Box sx={{
+                          bgcolor: 'rgba(255,255,255,0.2)',
+                          width: 60,
+                          height: 60,
+                          borderRadius: '50%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          mx: 'auto',
+                          mb: 1.5,
+                          backdropFilter: 'blur(10px)'
+                        }}>
+                          <TreeIcon sx={{ fontSize: 30, color: 'white' }} />
+                        </Box>
+                        <Typography variant="body1" color="white" gutterBottom sx={{ fontSize: '1rem', fontWeight: 600 }}>
+                          No Active Recommendation
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)', mb: 2, fontSize: '0.8rem' }}>
+                          Select a recommendation to start assigning seedlings
+                        </Typography>
+                      </Box>
+                    </Stack>
+                  </Grid>
+
+                  {/* Right Content - Loading State */}
+                  <Grid item xs={12} lg={4}>
+                    <Box sx={{ 
+                      textAlign: 'center',
+                      bgcolor: 'rgba(255,255,255,0.1)',
+                      borderRadius: 1.5,
+                      p: 2.5,
+                      backdropFilter: 'blur(15px)',
+                      border: '1px solid rgba(255,255,255,0.2)'
+                    }}>
+                      <Box sx={{
+                        bgcolor: 'rgba(255,255,255,0.2)',
+                        width: 50,
+                        height: 50,
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        mx: 'auto',
+                        mb: 1.5,
+                        backdropFilter: 'blur(10px)'
+                      }}>
+                        <TreeIcon sx={{ fontSize: 24, color: 'white' }} />
+                      </Box>
+                      
+                      <Typography variant="body1" fontWeight="600" gutterBottom sx={{ fontSize: '0.9rem' }}>
+                        Get Started
+                      </Typography>
+                      
+                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.9)', mb: 2, fontSize: '0.75rem' }}>
+                        Choose a recommendation to begin
+                      </Typography>
+
+                      <Button
+                        variant="contained"
+                        startIcon={<TreeIcon />}
+                        onClick={() => navigate('/recommendations')}
+                        sx={{
+                          bgcolor: 'white',
+                          color: '#2e7d32',
+                          fontWeight: 600,
+                          py: 1,
+                          borderRadius: 1.5,
+                          width: '100%',
+                          fontSize: '0.85rem',
+                          transition: 'all 0.2s ease',
+                          '&:hover': {
+                            bgcolor: 'rgba(255,255,255,0.95)',
+                            transform: 'translateY(-1px)'
+                          }
+                        }}
+                      >
+                        Select Recommendation
+                      </Button>
+                    </Box>
+                  </Grid>
+                </Grid>
+              </Box>
+            </Paper>
+
+            {/* Main Content - Loading State */}
+            <Box sx={{ width: '100%' }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+                <Box>
+                  <Typography variant="h4" sx={{ color: '#2e7d32', fontWeight: 700 }}>
+                    Assign Seedlings
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                    Please select a recommendation first to assign seedlings
+                  </Typography>
+                </Box>
+              </Box>
+                
+              {/* Search and Filters with Notification Chips */}
+              <Paper elevation={0} sx={{ mb: 3, p: 3, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
+                <Grid container spacing={2} alignItems="center">
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="Search requests"
+                      variant="outlined"
+                      value={filter}
+                      onChange={(e) => setFilter(e.target.value)}
+                      placeholder="Search by planter, location..."
+                      InputProps={{
+                        startAdornment: <SearchIcon sx={{ color: 'action.active', mr: 1 }} />
+                      }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, justifyContent: 'flex-end' }}>
+                      <Chip 
+                        icon={<TaskIcon />} 
+                        label={`0 Unassigned`} 
+                        color="warning" 
+                        variant="outlined"
+                      />
+                      <Typography variant="body2" color="text.secondary">
+                        0 results
+                      </Typography>
+                    </Box>
+                  </Grid>
+                </Grid>
+              </Paper>
+
+              {/* Loading indicator for requests */}
+              <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 200 }}>
+                <CircularProgress sx={{ color: '#2e7d32', mr: 2 }} />
+                <Typography variant="body1" color="textSecondary">
+                  Loading planting requests...
+                </Typography>
+              </Box>
+            </Box>
+          </Container>
         </Box>
       </Box>
     );
@@ -1049,7 +1232,7 @@ const SeedlingAssignmentPage = () => {
             </Alert>
           )}
 
-          {/* YOUR REQUESTED LOADING INDICATOR 2 */}
+          {/* Refresh loading indicator */}
           {(isRefreshing) && <LinearProgress sx={{ mb: 2 }} />}
 
           {/* COMPACT GREEN BACKGROUND DESIGN */}
@@ -1203,7 +1386,7 @@ const SeedlingAssignmentPage = () => {
                           No Active Recommendation
                         </Typography>
                         <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)', mb: 2, fontSize: '0.8rem' }}>
-                           recommendation to start assigning seedlings
+                          Select a recommendation to start assigning seedlings
                         </Typography>
                       </Box>
                     )}
@@ -1354,7 +1537,7 @@ const SeedlingAssignmentPage = () => {
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                   {currentRecommendation 
                     ? 'Select planting requests to assign recommended seedlings'
-                    : 'Please  recommendation first to assign seedlings'
+                    : 'Please select a recommendation first to assign seedlings'
                   }
                 </Typography>
               </Box>
