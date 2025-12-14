@@ -1,4 +1,4 @@
-// src/pages/Sensor.jsx - COMPLETE FIXED VERSION
+// src/pages/Sensor.jsx - UPDATED WITH ONE-TIME DATASET SYSTEM
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { apiService } from '../services/api';
 import {
@@ -42,10 +42,9 @@ import {
   Refresh as RefreshIcon,
   Info as InfoIcon,
   History as HistoryIcon,
+  Folder as FolderIcon,
   Upload as UploadIcon,
-  CloudUpload as CloudUploadIcon,
-  Error as ErrorIcon,
-  Settings as SettingsIcon
+  CloudUpload as CloudUploadIcon
 } from '@mui/icons-material';
 import ReForestAppBar from './AppBar.jsx';
 import Navigation from './Navigation.jsx';
@@ -55,31 +54,28 @@ import { useAuth } from '../context/AuthContext';
 const drawerWidth = 240;
 
 // ============================================================================
-// BACKEND API CONFIGURATION - UPDATED WITH BETTER DEBUGGING
+// BACKEND API CONFIGURATION
 // ============================================================================
 const BACKEND_CONFIG = {
-  BASE_URL: process.env.REACT_APP_API_URL || 'https://reforestadmin-backend.vercel.app',
+  BASE_URL: process.env.REACT_APP_API_URL || 'http://localhost:5000',
   ENDPOINTS: {
     ML_RECOMMENDATIONS: '/api/ml/generate-recommendations',
     ML_STATUS: '/api/ml/status',
     ML_DATASET: '/api/ml/dataset',
     ML_DATASET_STATUS: '/api/ml/dataset-status',
     ML_RELOAD_DATASET: '/api/ml/reload-dataset',
-    ML_UPLOAD_DATASET: '/api/ml/upload-dataset',
+    ML_UPLOAD_DATASET: '/api/ml/upload-dataset', // NEW ENDPOINT
     RECOMMENDATIONS: '/api/recommendations',
     SENSORS: '/api/sensors',
     SENSOR_DATA: (sensorId) => `/api/sensors/${sensorId}/data`,
     LOCATIONS: '/api/locations',
     LOCATION_BY_ID: (locationId) => `/api/locations/${locationId}`,
-    HEALTH: '/health',
-    ROOT: '/'
-  },
-  MAX_RETRIES: 2,
-  RETRY_DELAY: 1000
+    HEALTH: '/health'
+  }
 };
 
 // ============================================================================
-// VALIDATION SCHEMA - ADDED MISSING DEFINITION
+// VALIDATION SCHEMA
 // ============================================================================
 const SensorDataSchema = {
   pH: { min: 0, max: 14, required: true, optimal: [6.0, 8.0] },
@@ -88,7 +84,7 @@ const SensorDataSchema = {
 };
 
 // ============================================================================
-// HELPER FUNCTIONS - ADDED MISSING FUNCTIONS
+// HELPER FUNCTIONS
 // ============================================================================
 
 // Enhanced validation with warnings
@@ -134,6 +130,129 @@ const validateSensorData = (sensorData) => {
     warnings,
     hasWarnings: warnings.length > 0
   };
+};
+
+// Backend ML API service
+const backendMLService = {
+  // Generate ML recommendations via backend
+  async generateRecommendations(sensorId, sensorData, location, coordinates) {
+    try {
+      console.log('🤖 Sending ML request to backend:', { sensorId, sensorData, location, coordinates });
+      
+      const response = await fetch(`${BACKEND_CONFIG.BASE_URL}${BACKEND_CONFIG.ENDPOINTS.ML_RECOMMENDATIONS}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          sensorId, 
+          sensorData, 
+          location, 
+          coordinates 
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ Backend ML response:', result);
+      return result;
+      
+    } catch (error) {
+      console.error('❌ Backend ML API Error:', error);
+      throw new Error(`ML service unavailable: ${error.message}`);
+    }
+  },
+
+  // Get ML service status
+  async getMLStatus() {
+    try {
+      const response = await fetch(`${BACKEND_CONFIG.BASE_URL}${BACKEND_CONFIG.ENDPOINTS.ML_STATUS}`);
+      if (!response.ok) throw new Error('ML status check failed');
+      return await response.json();
+    } catch (error) {
+      console.warn('ML status check failed:', error.message);
+      return { mlService: 'Inactive', datasetLoaded: false };
+    }
+  },
+
+  // Get detailed dataset status
+  async getDatasetStatus() {
+    try {
+      const response = await fetch(`${BACKEND_CONFIG.BASE_URL}${BACKEND_CONFIG.ENDPOINTS.ML_DATASET_STATUS}`);
+      if (!response.ok) throw new Error('Failed to get dataset status');
+      return await response.json();
+    } catch (error) {
+      console.warn('Dataset status fetch failed:', error.message);
+      return null;
+    }
+  },
+
+  // Reload dataset
+  async reloadDataset() {
+    try {
+      const response = await fetch(`${BACKEND_CONFIG.BASE_URL}${BACKEND_CONFIG.ENDPOINTS.ML_RELOAD_DATASET}`, {
+        method: 'POST'
+      });
+      if (!response.ok) throw new Error('Failed to reload dataset');
+      return await response.json();
+    } catch (error) {
+      console.warn('Dataset reload failed:', error.message);
+      throw error;
+    }
+  },
+
+  // Upload dataset (NEW FUNCTION)
+  async uploadDataset(file) {
+    try {
+      const formData = new FormData();
+      formData.append('dataset', file);
+
+      const response = await fetch(`${BACKEND_CONFIG.BASE_URL}${BACKEND_CONFIG.ENDPOINTS.ML_UPLOAD_DATASET}`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || `Upload failed! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ Dataset upload response:', result);
+      return result;
+      
+    } catch (error) {
+      console.error('❌ Dataset upload failed:', error);
+      throw new Error(`Dataset upload failed: ${error.message}`);
+    }
+  },
+
+  // Get dataset info
+  async getDatasetInfo() {
+    try {
+      const response = await fetch(`${BACKEND_CONFIG.BASE_URL}${BACKEND_CONFIG.ENDPOINTS.ML_DATASET}`);
+      if (!response.ok) throw new Error('Failed to get dataset info');
+      return await response.json();
+    } catch (error) {
+      console.warn('Dataset info fetch failed:', error.message);
+      return null;
+    }
+  },
+
+  // Health check
+  async healthCheck() {
+    try {
+      const response = await fetch(`${BACKEND_CONFIG.BASE_URL}${BACKEND_CONFIG.ENDPOINTS.HEALTH}`);
+      return response.ok;
+    } catch (error) {
+      console.warn('Backend health check failed:', error.message);
+      return false;
+    }
+  }
 };
 
 // Format timestamp
@@ -182,278 +301,8 @@ const getStatusIcon = (status) => {
   }
 };
 
-// Backend ML API service with comprehensive debugging
-const backendMLService = {
-  // Enhanced health check with multiple endpoint testing
-  async healthCheck() {
-    console.log('🔍 Starting comprehensive backend health check...');
-    
-    // Try multiple endpoints to see what works
-    const endpointsToTry = [
-      BACKEND_CONFIG.ENDPOINTS.HEALTH,
-      BACKEND_CONFIG.ENDPOINTS.ROOT,
-      BACKEND_CONFIG.ENDPOINTS.ML_STATUS
-    ];
-    
-    for (const endpoint of endpointsToTry) {
-      try {
-        const url = `${BACKEND_CONFIG.BASE_URL}${endpoint}`;
-        console.log(`🔄 Testing endpoint: ${url}`);
-        
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-        
-        const response = await fetch(url, {
-          method: 'GET',
-          signal: controller.signal,
-          headers: {
-            'Accept': 'application/json',
-          }
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (response.ok) {
-          console.log(`✅ Endpoint ${endpoint} is responding (HTTP ${response.status})`);
-          
-          // Try to get response data
-          try {
-            const data = await response.json();
-            console.log(`📊 Response from ${endpoint}:`, data);
-          } catch (jsonError) {
-            console.log(`📄 ${endpoint} responded but not with JSON`);
-          }
-          
-          return true;
-        } else {
-          console.warn(`⚠️ Endpoint ${endpoint} returned HTTP ${response.status}`);
-        }
-      } catch (error) {
-        if (error.name === 'AbortError') {
-          console.warn(`⏰ Timeout on endpoint ${endpoint}`);
-        } else {
-          console.warn(`❌ Error testing ${endpoint}:`, error.message);
-        }
-      }
-    }
-    
-    console.log('❌ All backend endpoints failed');
-    return false;
-  },
-
-  // Get ML service status with fallback
-  async getMLStatus() {
-    try {
-      console.log('📡 Checking ML service status...');
-      
-      const response = await fetch(`${BACKEND_CONFIG.BASE_URL}${BACKEND_CONFIG.ENDPOINTS.ML_STATUS}`, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-        },
-        timeout: 10000
-      });
-      
-      if (!response.ok) {
-        console.warn(`ML status endpoint returned HTTP ${response.status}`);
-        // Return minimal status for now
-        return { 
-          mlService: 'Checking...', 
-          datasetLoaded: false,
-          endpoint: BACKEND_CONFIG.ENDPOINTS.ML_STATUS,
-          statusCode: response.status
-        };
-      }
-      
-      const data = await response.json();
-      console.log('ML status response:', data);
-      return data;
-      
-    } catch (error) {
-      console.warn('ML status check failed:', error.message);
-      return { 
-        mlService: 'Unavailable', 
-        datasetLoaded: false,
-        error: error.message,
-        endpoint: BACKEND_CONFIG.ENDPOINTS.ML_STATUS
-      };
-    }
-  },
-
-  // Generate ML recommendations with better error handling
-  async generateRecommendations(sensorId, sensorData, location, coordinates) {
-    try {
-      console.log('🤖 Sending ML request to backend...');
-      console.log('Request details:', { 
-        sensorId, 
-        sensorData, 
-        location, 
-        coordinates,
-        url: `${BACKEND_CONFIG.BASE_URL}${BACKEND_CONFIG.ENDPOINTS.ML_RECOMMENDATIONS}`
-      });
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout for ML processing
-      
-      const response = await fetch(`${BACKEND_CONFIG.BASE_URL}${BACKEND_CONFIG.ENDPOINTS.ML_RECOMMENDATIONS}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({ 
-          sensorId, 
-          sensorData, 
-          location, 
-          coordinates 
-        }),
-        signal: controller.signal
-      });
-      
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        console.error(`❌ ML API returned HTTP ${response.status}`);
-        
-        let errorMessage;
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.message || errorData.error || `HTTP ${response.status}`;
-        } catch {
-          errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-        }
-        
-        // Special handling for common errors
-        if (response.status === 503) {
-          errorMessage = 'Backend ML service is starting up. This can take a minute on free hosting. Please wait and try again.';
-        } else if (response.status === 504) {
-          errorMessage = 'ML processing timeout. The request took too long. This is common with free hosting. Please try again.';
-        }
-        
-        throw new Error(errorMessage);
-      }
-
-      const result = await response.json();
-      console.log('✅ Backend ML response:', result);
-      
-      if (!result.success) {
-        throw new Error(result.error || result.message || 'ML processing failed');
-      }
-      
-      return result;
-      
-    } catch (error) {
-      console.error('❌ Backend ML API Error:', error);
-      
-      // Enhanced error messages
-      let enhancedError = error.message;
-      if (error.name === 'AbortError') {
-        enhancedError = 'ML request timeout (45s). The backend might be cold-starting on free hosting. Please try again.';
-      }
-      
-      throw new Error(`ML service: ${enhancedError}`);
-    }
-  },
-
-  // Get dataset status
-  async getDatasetStatus() {
-    try {
-      const response = await fetch(`${BACKEND_CONFIG.BASE_URL}${BACKEND_CONFIG.ENDPOINTS.ML_DATASET_STATUS}`, {
-        timeout: 10000
-      });
-      
-      if (!response.ok) {
-        console.warn('Dataset status check failed with status:', response.status);
-        return null;
-      }
-      
-      return await response.json();
-    } catch (error) {
-      console.warn('Dataset status fetch failed:', error.message);
-      return null;
-    }
-  },
-
-  // Upload dataset
-  async uploadDataset(file) {
-    try {
-      const formData = new FormData();
-      formData.append('dataset', file);
-
-      const response = await fetch(`${BACKEND_CONFIG.BASE_URL}${BACKEND_CONFIG.ENDPOINTS.ML_UPLOAD_DATASET}`, {
-        method: 'POST',
-        body: formData,
-        timeout: 30000
-      });
-
-      if (!response.ok) {
-        let errorData;
-        try {
-          errorData = await response.json();
-        } catch {
-          errorData = {};
-        }
-        throw new Error(errorData.message || `Upload failed! HTTP ${response.status}`);
-      }
-
-      const result = await response.json();
-      console.log('✅ Dataset upload response:', result);
-      return result;
-      
-    } catch (error) {
-      console.error('❌ Dataset upload failed:', error);
-      throw new Error(`Dataset upload failed: ${error.message}`);
-    }
-  },
-
-  // Test backend connectivity
-  async testBackendConnectivity() {
-    console.log('🔧 Testing backend connectivity...');
-    
-    const tests = {
-      baseUrl: BACKEND_CONFIG.BASE_URL,
-      endpoints: {},
-      overall: 'unknown'
-    };
-    
-    // Test root endpoint
-    try {
-      const response = await fetch(`${BACKEND_CONFIG.BASE_URL}/`, { timeout: 5000 });
-      tests.endpoints.root = {
-        status: response.status,
-        ok: response.ok,
-        url: `${BACKEND_CONFIG.BASE_URL}/`
-      };
-    } catch (error) {
-      tests.endpoints.root = { error: error.message };
-    }
-    
-    // Test health endpoint
-    try {
-      const response = await fetch(`${BACKEND_CONFIG.BASE_URL}${BACKEND_CONFIG.ENDPOINTS.HEALTH}`, { timeout: 5000 });
-      tests.endpoints.health = {
-        status: response.status,
-        ok: response.ok,
-        url: `${BACKEND_CONFIG.BASE_URL}${BACKEND_CONFIG.ENDPOINTS.HEALTH}`
-      };
-    } catch (error) {
-      tests.endpoints.health = { error: error.message };
-    }
-    
-    // Determine overall status
-    if (tests.endpoints.root.ok || tests.endpoints.health.ok) {
-      tests.overall = 'reachable';
-    } else {
-      tests.overall = 'unreachable';
-    }
-    
-    console.log('Backend connectivity test:', tests);
-    return tests;
-  }
-};
-
 // ============================================================================
-// DATASET UPLOAD COMPONENT - FIXED DEFINITION
+// DATASET UPLOAD COMPONENT
 // ============================================================================
 const DatasetUploadSection = ({ 
   mlServiceStatus, 
@@ -476,11 +325,6 @@ const DatasetUploadSection = ({
       
       if (!validTypes.includes(file.type)) {
         alert('Please select a valid Excel or CSV file (.xlsx, .xls, .csv)');
-        return;
-      }
-      
-      if (file.size > 10 * 1024 * 1024) { // 10MB limit
-        alert('File size must be less than 10MB');
         return;
       }
       
@@ -510,22 +354,10 @@ const DatasetUploadSection = ({
         <Typography variant="h6" fontWeight="600">
           Tree Dataset Management
         </Typography>
-        <Chip 
-          label={mlServiceStatus.datasetLoaded ? 'Dataset Loaded' : 'Dataset Required'} 
-          color={mlServiceStatus.datasetLoaded ? 'success' : 'warning'}
-          size="small"
-          variant={mlServiceStatus.datasetLoaded ? 'filled' : 'outlined'}
-        />
       </Box>
 
-      {mlServiceStatus.datasetLoaded && mlServiceStatus.speciesCount && (
-        <Alert severity="success" sx={{ mb: 2 }}>
-          Dataset loaded successfully! {mlServiceStatus.speciesCount} tree species available for recommendations.
-        </Alert>
-      )}
-
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {!selectedFile ? (
+      {mlServiceStatus.datasetLoaded ? (
+        <Box>
           <Button
             variant="contained"
             component="label"
@@ -534,11 +366,10 @@ const DatasetUploadSection = ({
               bgcolor: '#2e7d32',
               '&:hover': { bgcolor: '#1b5e20' },
               textTransform: 'none',
-              fontWeight: 500,
-              alignSelf: 'flex-start'
+              fontWeight: 500
             }}
           >
-            {mlServiceStatus.datasetLoaded ? 'Update Dataset' : 'Upload Tree Dataset'}
+            Upload Tree Dataset
             <input
               type="file"
               hidden
@@ -547,187 +378,175 @@ const DatasetUploadSection = ({
               ref={fileInputRef}
             />
           </Button>
-        ) : (
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <Alert severity="info" sx={{ mb: 1 }}>
-              Selected file: <strong>{selectedFile.name}</strong> ({Math.round(selectedFile.size / 1024)} KB)
-            </Alert>
-            <Box sx={{ display: 'flex', gap: 2 }}>
+        </Box>
+      ) : (
+        <Box>
+          {!selectedFile ? (
+            <>
               <Button
                 variant="contained"
-                onClick={handleUpload}
-                disabled={uploadingDataset}
-                startIcon={uploadingDataset ? <CircularProgress size={16} /> : <UploadIcon />}
+                component="label"
+                startIcon={<CloudUploadIcon />}
                 sx={{ 
                   bgcolor: '#2e7d32',
                   '&:hover': { bgcolor: '#1b5e20' },
-                  textTransform: 'none'
+                  textTransform: 'none',
+                  fontWeight: 500
                 }}
               >
-                {uploadingDataset ? 'Uploading...' : 'Upload Dataset'}
+                Upload Tree Dataset
+                <input
+                  type="file"
+                  hidden
+                  accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
+                  onChange={handleFileSelect}
+                  ref={fileInputRef}
+                />
               </Button>
-              <Button
-                variant="outlined"
-                onClick={handleCancel}
-                disabled={uploadingDataset}
-                sx={{ textTransform: 'none' }}
-              >
-                Cancel
-              </Button>
+            </>
+          ) : (
+            <Box>
+              <Typography variant="body2" sx={{ mb: 2 }}>
+                Selected file: <strong>{selectedFile.name}</strong> ({Math.round(selectedFile.size / 1024)} KB)
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <Button
+                  variant="contained"
+                  onClick={handleUpload}
+                  disabled={uploadingDataset}
+                  startIcon={uploadingDataset ? <CircularProgress size={16} /> : <UploadIcon />}
+                  sx={{ 
+                    bgcolor: '#2e7d32',
+                    '&:hover': { bgcolor: '#1b5e20' },
+                    textTransform: 'none'
+                  }}
+                >
+                  {uploadingDataset ? 'Uploading...' : 'Upload Dataset'}
+                </Button>
+                <Button
+                  variant="outlined"
+                  onClick={handleCancel}
+                  disabled={uploadingDataset}
+                  sx={{ textTransform: 'none' }}
+                >
+                  Cancel
+                </Button>
+              </Box>
             </Box>
-          </Box>
-        )}
-        
-        {mlServiceStatus.datasetLoaded && (
-          <Button
-            variant="outlined"
-            onClick={onReload}
-            disabled={reloadingDataset}
-            startIcon={reloadingDataset ? <CircularProgress size={16} /> : <RefreshIcon />}
-            sx={{ textTransform: 'none', alignSelf: 'flex-start' }}
-          >
-            {reloadingDataset ? 'Reloading...' : 'Reload Dataset'}
-          </Button>
-        )}
-      </Box>
-      
-      {mlServiceStatus.error && !mlServiceStatus.datasetLoaded && (
-        <Alert severity="warning" sx={{ mt: 2 }}>
-          Unable to check dataset status: {mlServiceStatus.error}
-        </Alert>
+          )}
+          
+    
+        </Box>
       )}
     </Paper>
   );
 };
+// ============================================================================
+// SENSOR HISTORY GRID COMPONENT
+// ============================================================================
+const SensorHistoryGrid = ({ readings }) => {
+  const [historyPage, setHistoryPage] = useState(0);
+  const [historyRowsPerPage, setHistoryRowsPerPage] = useState(5);
 
-// ============================================================================
-// BACKEND STATUS CARD COMPONENT
-// ============================================================================
-const BackendStatusCard = ({ 
-  backendStatus, 
-  mlServiceStatus, 
-  onTestConnectivity,
-  testingConnectivity 
-}) => {
-  const [showDetails, setShowDetails] = useState(false);
-  
-  const getStatusColor = () => {
-    if (backendStatus === 'healthy') return 'success';
-    if (backendStatus === 'unavailable') return 'warning';
-    return 'info';
+  const handleHistoryPageChange = (event, newPage) => {
+    setHistoryPage(newPage);
   };
-  
-  const getStatusText = () => {
-    if (backendStatus === 'healthy') return 'Backend Connected';
-    if (backendStatus === 'unavailable') return 'Backend Issues';
-    return 'Checking Backend...';
+
+  const handleHistoryRowsPerPageChange = (event) => {
+    setHistoryRowsPerPage(parseInt(event.target.value, 10));
+    setHistoryPage(0);
   };
-  
+
+  const sortedReadings = useMemo(() => {
+    return [...readings].sort((a, b) => {
+      if (!a.timestamp) return 1;
+      if (!b.timestamp) return -1;
+      return new Date(b.timestamp) - new Date(a.timestamp);
+    });
+  }, [readings]);
+
+  const paginatedReadings = useMemo(() => {
+    return sortedReadings.slice(
+      historyPage * historyRowsPerPage,
+      historyPage * historyRowsPerPage + historyRowsPerPage
+    );
+  }, [sortedReadings, historyPage, historyRowsPerPage]);
+
   return (
-    <Card variant="outlined" sx={{ mb: 3 }}>
-      <CardContent>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <SettingsIcon />
-            Backend Connection Status
+    <Box sx={{ mt: 3 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+        <HistoryIcon sx={{ mr: 1, color: 'primary.main' }} />
+        <Typography variant="h6">
+          Historical Readings ({readings.length} total)
+        </Typography>
+      </Box>
+
+      {readings.length === 0 ? (
+        <Card variant="outlined" sx={{ p: 3, textAlign: 'center', bgcolor: 'grey.50' }}>
+          <HistoryIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 1 }} />
+          <Typography variant="body1" color="text.secondary">
+            No historical data available for this sensor
           </Typography>
-          <Chip 
-            label={getStatusText()} 
-            color={getStatusColor()} 
-            size="small"
-            variant={backendStatus === 'healthy' ? 'filled' : 'outlined'}
+        </Card>
+      ) : (
+        <>
+          <TableContainer component={Paper} variant="outlined">
+            <Table size="small">
+              <TableHead>
+                <TableRow sx={{ bgcolor: 'grey.50' }}>
+                  <TableCell><Typography variant="subtitle2" fontWeight="bold">Timestamp</Typography></TableCell>
+                  <TableCell align="center"><Typography variant="subtitle2" fontWeight="bold">pH</Typography></TableCell>
+                  <TableCell align="center"><Typography variant="subtitle2" fontWeight="bold">Moisture (%)</Typography></TableCell>
+                  <TableCell align="center"><Typography variant="subtitle2" fontWeight="bold">Temp (°C)</Typography></TableCell>
+                  <TableCell><Typography variant="subtitle2" fontWeight="bold">Reading ID</Typography></TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {paginatedReadings.map((reading, index) => (
+                  <TableRow key={reading.id || index} hover>
+                    <TableCell>
+                      <Typography variant="body2">
+                        {formatTimestamp(reading.timestamp)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="center">
+                      <Typography variant="body2" fontWeight="medium">
+                        {formatValue(reading.pH)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="center">
+                      <Typography variant="body2" fontWeight="medium">
+                        {formatValue(reading.soilMoisture, '%')}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="center">
+                      <Typography variant="body2" fontWeight="medium">
+                        {formatValue(reading.temperature, '°C')}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="caption" color="text.secondary" fontFamily="monospace">
+                        {reading.id || `reading_${index}`}
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+          
+          <TablePagination
+            rowsPerPageOptions={[5, 10, 25, 50]}
+            component="div"
+            count={readings.length}
+            rowsPerPage={historyRowsPerPage}
+            page={historyPage}
+            onPageChange={handleHistoryPageChange}
+            onRowsPerPageChange={handleHistoryRowsPerPageChange}
           />
-        </Box>
-        
-        <Box sx={{ mb: 2 }}>
-          <Typography variant="body2" color="text.secondary" gutterBottom>
-            Backend URL: <code>{BACKEND_CONFIG.BASE_URL}</code>
-          </Typography>
-          
-          {mlServiceStatus.endpoint && (
-            <Typography variant="body2" color="text.secondary" gutterBottom>
-              Last endpoint checked: <code>{mlServiceStatus.endpoint}</code>
-            </Typography>
-          )}
-          
-          {mlServiceStatus.statusCode && (
-            <Typography variant="body2" color="text.secondary">
-              HTTP Status: <strong>{mlServiceStatus.statusCode}</strong>
-            </Typography>
-          )}
-        </Box>
-        
-        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-          <Button
-            variant="outlined"
-            size="small"
-            onClick={onTestConnectivity}
-            disabled={testingConnectivity}
-            startIcon={testingConnectivity ? <CircularProgress size={16} /> : <RefreshIcon />}
-          >
-            {testingConnectivity ? 'Testing...' : 'Test Connection'}
-          </Button>
-          
-          <Button
-            variant="text"
-            size="small"
-            onClick={() => setShowDetails(!showDetails)}
-          >
-            {showDetails ? 'Hide Details' : 'Show Details'}
-          </Button>
-          
-          <Button
-            variant="text"
-            size="small"
-            onClick={() => window.open(BACKEND_CONFIG.BASE_URL, '_blank')}
-            startIcon={<InfoIcon />}
-          >
-            Open Backend
-          </Button>
-        </Box>
-        
-        {showDetails && (
-          <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-            <Typography variant="subtitle2" gutterBottom>
-              Debug Information:
-            </Typography>
-            <Typography variant="caption" component="div" sx={{ fontFamily: 'monospace' }}>
-              <div>Base URL: {BACKEND_CONFIG.BASE_URL}</div>
-              <div>Environment: {process.env.NODE_ENV}</div>
-              <div>API URL env: {process.env.REACT_APP_API_URL || 'Not set'}</div>
-              <div>Backend Status: {backendStatus}</div>
-              <div>ML Service: {mlServiceStatus.mlService}</div>
-              <div>Dataset Loaded: {mlServiceStatus.datasetLoaded ? 'Yes' : 'No'}</div>
-              {mlServiceStatus.error && (
-                <div>Error: {mlServiceStatus.error}</div>
-              )}
-            </Typography>
-          </Box>
-        )}
-        
-        {backendStatus === 'unavailable' && (
-          <Alert severity="warning" sx={{ mt: 2 }}>
-            <Typography variant="body2">
-              <strong>Backend Connection Issue</strong>
-            </Typography>
-            <Typography variant="body2" sx={{ mt: 0.5 }}>
-              The backend at <code>{BACKEND_CONFIG.BASE_URL}</code> is not responding.
-              This could be because:
-            </Typography>
-            <ul style={{ marginTop: 8, marginBottom: 8, paddingLeft: 20 }}>
-              <li>Backend server is still starting up (common on free hosting)</li>
-              <li>Backend server is down or experiencing issues</li>
-              <li>Network connectivity problems</li>
-              <li>CORS configuration issues</li>
-            </ul>
-            <Typography variant="body2">
-              Please wait a minute and try the "Test Connection" button. 
-              The backend may be cold-starting on Vercel's free tier.
-            </Typography>
-          </Alert>
-        )}
-      </CardContent>
-    </Card>
+        </>
+      )}
+    </Box>
   );
 };
 
@@ -755,8 +574,7 @@ function Sensors() {
   const [processingMLSensor, setProcessingMLSensor] = useState(null);
   const [mlProgress, setMlProgress] = useState({ step: '', percent: 0 });
   const [reloadingDataset, setReloadingDataset] = useState(false);
-  const [uploadingDataset, setUploadingDataset] = useState(false);
-  const [testingConnectivity, setTestingConnectivity] = useState(false);
+  const [uploadingDataset, setUploadingDataset] = useState(false); // NEW STATE
   
   // Modal State
   const [selectedSensor, setSelectedSensor] = useState(null);
@@ -765,12 +583,13 @@ function Sensors() {
   // Backend State
   const [backendStatus, setBackendStatus] = useState('checking');
   const [mlServiceStatus, setMlServiceStatus] = useState({ 
-    mlService: 'Checking...', 
+    mlService: 'Unknown', 
     datasetLoaded: false,
-    endpoint: null,
-    statusCode: null,
-    error: null,
-    lastCheck: null
+    datasetPath: '',
+    datasetExists: false,
+    datasetName: '',
+    datasetSize: 0,
+    speciesCount: 0
   });
   
   // Error/Notification State
@@ -781,7 +600,6 @@ function Sensors() {
   // NOTIFICATION HELPER
   // ============================================================================
   const showNotification = useCallback((message, severity = 'info') => {
-    console.log(`📢 Notification: ${severity} - ${message}`);
     setSnackbar({ open: true, message, severity });
   }, []);
 
@@ -790,48 +608,58 @@ function Sensors() {
   };
 
   // ============================================================================
-  // EVENT HANDLERS - ADDED MISSING HANDLERS
+  // BACKEND & ML SERVICE HEALTH CHECK - UPDATED
   // ============================================================================
-  const handleDrawerToggle = () => setMobileOpen(!mobileOpen);
-  const handleLogout = () => logout();
-
-  // ============================================================================
-  // BACKEND CONNECTIVITY TEST
-  // ============================================================================
-  const handleTestConnectivity = async () => {
-    setTestingConnectivity(true);
-    try {
-      console.log('🔧 Starting manual backend connectivity test...');
-      
-      const connectivityTest = await backendMLService.testBackendConnectivity();
-      
-      if (connectivityTest.overall === 'reachable') {
-        setBackendStatus('healthy');
-        showNotification('Backend is reachable!', 'success');
+  useEffect(() => {
+    const checkServices = async () => {
+      try {
+        const [isBackendHealthy, mlStatus, datasetStatus] = await Promise.all([
+          backendMLService.healthCheck(),
+          backendMLService.getMLStatus(),
+          backendMLService.getDatasetStatus().catch(() => null)
+        ]);
         
-        // Also check ML status
-        const mlStatus = await backendMLService.getMLStatus();
-        setMlServiceStatus({
+        setBackendStatus(isBackendHealthy ? 'healthy' : 'unavailable');
+        
+        // Merge basic ML status with detailed dataset status if available
+        const mergedStatus = {
           ...mlStatus,
-          lastCheck: new Date().toISOString()
-        });
-      } else {
+          ...(datasetStatus || {})
+        };
+        
+        setMlServiceStatus(mergedStatus);
+        
+        if (!isBackendHealthy) {
+          console.warn('⚠️ Backend server is unavailable.');
+          showNotification('Backend server unavailable. ML recommendations will not work.', 'warning');
+        } else if (!mergedStatus.datasetLoaded) {
+          console.warn('⚠️ Backend ML service ready but dataset not loaded.');
+          console.log('📁 Dataset status:', mergedStatus);
+        } else {
+          console.log('✅ Backend and ML service are ready');
+          console.log(`📊 Dataset: ${mergedStatus.speciesCount} species loaded`);
+          console.log(`📁 File: ${mergedStatus.datasetName}`);
+        }
+      } catch (error) {
         setBackendStatus('unavailable');
-        showNotification('Backend is not responding. Check console for details.', 'warning');
+        setMlServiceStatus({ 
+          mlService: 'Unknown', 
+          datasetLoaded: false,
+          datasetPath: '',
+          datasetExists: false,
+          datasetName: '',
+          datasetSize: 0,
+          speciesCount: 0
+        });
+        console.error('Service health check failed:', error);
       }
-      
-      console.log('Connectivity test complete:', connectivityTest);
-      
-    } catch (error) {
-      console.error('Connectivity test failed:', error);
-      showNotification('Connectivity test failed: ' + error.message, 'error');
-    } finally {
-      setTestingConnectivity(false);
-    }
-  };
+    };
+
+    checkServices();
+  }, [showNotification]);
 
   // ============================================================================
-  // DATASET UPLOAD HANDLER - ADDED MISSING FUNCTION
+  // DATASET UPLOAD HANDLER - NEW FUNCTION
   // ============================================================================
   const handleDatasetUpload = async (file) => {
     setUploadingDataset(true);
@@ -846,8 +674,7 @@ function Sensors() {
         const datasetStatus = await backendMLService.getDatasetStatus().catch(() => null);
         setMlServiceStatus({
           ...mlStatus,
-          ...(datasetStatus || {}),
-          lastCheck: new Date().toISOString()
+          ...(datasetStatus || {})
         });
       } else {
         showNotification('Dataset upload failed: ' + (result.message || 'Unknown error'), 'error');
@@ -861,7 +688,7 @@ function Sensors() {
   };
 
   // ============================================================================
-  // RELOAD DATASET HANDLER - ADDED MISSING FUNCTION
+  // RELOAD DATASET HANDLER - UPDATED
   // ============================================================================
   const handleReloadDataset = async () => {
     setReloadingDataset(true);
@@ -875,8 +702,7 @@ function Sensors() {
         const datasetStatus = await backendMLService.getDatasetStatus().catch(() => null);
         setMlServiceStatus({
           ...mlStatus,
-          ...(datasetStatus || {}),
-          lastCheck: new Date().toISOString()
+          ...(datasetStatus || {})
         });
       } else {
         showNotification('Failed to reload dataset', 'error');
@@ -890,81 +716,110 @@ function Sensors() {
   };
 
   // ============================================================================
-  // BACKEND & ML SERVICE HEALTH CHECK
+  // FETCH LOCATIONS FROM BACKEND
   // ============================================================================
-  useEffect(() => {
-    let mounted = true;
-    
-    const checkServices = async () => {
-      if (!mounted) return;
+  const fetchLocations = useCallback(async () => {
+    try {
+      console.log('📍 Fetching locations from backend...');
+      const locationsData = await apiService.getLocations();
       
-      try {
-        console.log('🔄 Checking backend services...');
-        
-        const isBackendHealthy = await backendMLService.healthCheck();
-        
-        if (!mounted) return;
-        
-        if (isBackendHealthy) {
-          setBackendStatus('healthy');
-          console.log('✅ Backend health check passed');
-          
-          // Get ML status
-          const mlStatus = await backendMLService.getMLStatus();
-          
-          if (!mounted) return;
-          
-          setMlServiceStatus({
-            ...mlStatus,
-            lastCheck: new Date().toISOString()
-          });
-          
-          if (mlStatus.mlService === 'Active') {
-            console.log('✅ ML service is active');
+      const locationsMap = {};
+      if (Array.isArray(locationsData)) {
+        locationsData.forEach((location) => {
+          if (location && location.id) {
+            const locationData = {
+              id: location.id,
+              location_name: location.location_name || 'Unknown Location',
+              location_latitude: location.location_latitude,
+              location_longitude: location.location_longitude,
+              sensor_id: location.sensor_id,
+              created_by: location.created_by,
+              is_active: location.is_active,
+              last_updated: location.last_updated
+            };
+            
+            locationsMap[location.id] = locationData;
+            
+            if (location.sensor_id && location.sensor_id !== location.id) {
+              locationsMap[location.sensor_id] = locationData;
+            }
           }
-        } else {
-          setBackendStatus('unavailable');
-          console.warn('⚠️ Backend health check failed');
-          
-          // Still try to get ML status for debugging
-          try {
-            const mlStatus = await backendMLService.getMLStatus();
-            setMlServiceStatus({
-              ...mlStatus,
-              lastCheck: new Date().toISOString()
-            });
-          } catch (mlError) {
-            console.warn('Could not get ML status:', mlError.message);
-          }
-        }
-        
-      } catch (error) {
-        if (!mounted) return;
-        console.error('Service health check failed:', error);
-        setBackendStatus('unavailable');
-        setMlServiceStatus({ 
-          mlService: 'Error', 
-          datasetLoaded: false,
-          error: error.message,
-          lastCheck: new Date().toISOString()
         });
       }
-    };
-
-    checkServices();
-    
-    // Set up periodic health check every 60 seconds (longer interval for free hosting)
-    const healthCheckInterval = setInterval(() => {
-      if (mounted && document.visibilityState === 'visible') {
-        checkServices();
-      }
-    }, 60000);
-    
-    return () => {
-      mounted = false;
-      clearInterval(healthCheckInterval);
-    };
+      
+      console.log(`✅ Loaded ${Object.keys(locationsMap).length} location mappings`);
+      return locationsMap;
+    } catch (error) {
+      console.error('❌ Error fetching locations:', error);
+      showNotification('Failed to load location data', 'warning');
+      return {};
+    }
   }, [showNotification]);
+
+  // ============================================================================
+  // FETCH SENSORS FROM BACKEND
+  // ============================================================================
+  const fetchSensorsFromBackend = useCallback(async () => {
+    try {
+      console.log('📡 Fetching sensors from backend API...');
+      
+      const sensorsData = await apiService.getSensors();
+      
+      if (!Array.isArray(sensorsData) || sensorsData.length === 0) {
+        console.warn('No sensors found');
+        return [];
+      }
+      
+      const processedSensors = sensorsData.map(sensor => {
+        const latestReading = sensor.latest_reading || {};
+        
+        return {
+          id: sensor.id,
+          location_id: sensor.location_id,
+          latitude: sensor.latitude,
+          longitude: sensor.longitude,
+          sensor_status: sensor.sensor_status || 'active',
+          sensor_lastCalibrationDate: sensor.sensor_lastCalibrationDate,
+          sensor_location: sensor.sensor_location,
+          sensor_type: sensor.sensor_type,
+          coordinates: {
+            latitude: sensor.latitude,
+            longitude: sensor.longitude
+          },
+          pH: latestReading.pH !== undefined ? parseFloat(latestReading.pH) : "N/A",
+          soilMoisture: latestReading.soilMoisture !== undefined ? parseFloat(latestReading.soilMoisture) : "N/A",
+          temperature: latestReading.temperature !== undefined ? parseFloat(latestReading.temperature) : "N/A",
+          timestamp: latestReading.timestamp || null,
+          readings: [],
+          readingsLoaded: false
+        };
+      });
+      
+      console.log(`✅ Loaded ${processedSensors.length} sensors from backend`);
+      return processedSensors;
+      
+    } catch (error) {
+      console.error('❌ Error fetching sensors from backend:', error);
+      throw error;
+    }
+  }, []);
+
+  // ============================================================================
+  // FETCH SENSOR HISTORY
+  // ============================================================================
+  const fetchSensorHistory = async (sensorId) => {
+    try {
+      console.log(`📊 Fetching history for sensor ${sensorId}...`);
+      const historyData = await apiService.getSensorData(sensorId, { limit: 100 });
+      
+      console.log(`✅ Loaded ${historyData.length} readings for sensor ${sensorId}`);
+      return historyData;
+    } catch (error) {
+      console.error('❌ Error fetching sensor history:', error);
+      showNotification('Failed to load sensor history', 'warning');
+      return [];
+    }
+  };
 
   // ============================================================================
   // INITIALIZE DATA
@@ -973,71 +828,77 @@ function Sensors() {
     const fetchData = async () => {
       setLoading(true);
       try {
-        // Fetch sensor data even if backend is unavailable
-        console.log('📡 Fetching sensor data...');
-        const sensorsData = await apiService.getSensors();
-        
-        console.log(`✅ Loaded ${sensorsData.length} sensors from API`);
-        
+        const [sensorsData, locationsData] = await Promise.all([
+          fetchSensorsFromBackend(),
+          fetchLocations()
+        ]);
+
         const processedSensors = sensorsData.map(sensor => {
-          const latestReading = sensor.latest_reading || {};
-          
-          return {
-            id: sensor.id,
-            location_id: sensor.location_id,
-            latitude: sensor.latitude,
-            longitude: sensor.longitude,
-            sensor_status: sensor.sensor_status || 'active',
-            sensor_lastCalibrationDate: sensor.sensor_lastCalibrationDate,
-            sensor_location: sensor.sensor_location,
-            sensor_type: sensor.sensor_type,
-            coordinates: {
+          let locationInfo = null;
+          let locationId = null;
+
+          if (sensor.location_id && locationsData[sensor.location_id]) {
+            locationInfo = locationsData[sensor.location_id];
+            locationId = sensor.location_id;
+          } else if (sensor.location_id && sensor.location_id.includes('/')) {
+            const extractedId = sensor.location_id.split('/').pop();
+            if (locationsData[extractedId]) {
+              locationInfo = locationsData[extractedId];
+              locationId = extractedId;
+            }
+          } else if (locationsData[sensor.id]) {
+            locationInfo = locationsData[sensor.id];
+            locationId = sensor.id;
+          } else {
+            const matchingLocation = Object.values(locationsData).find(
+              loc => loc.sensor_id === sensor.id
+            );
+            if (matchingLocation) {
+              locationInfo = matchingLocation;
+              locationId = matchingLocation.id;
+            }
+          }
+
+          let locationName = 'Unknown Location';
+          let locationCoordinates = null;
+          let sensorId = null;
+          let isActive = true;
+
+          if (locationInfo) {
+            locationName = locationInfo.location_name || 'Unknown Location';
+            locationCoordinates = {
+              latitude: locationInfo.location_latitude || sensor.latitude,
+              longitude: locationInfo.location_longitude || sensor.longitude
+            };
+            sensorId = locationInfo.sensor_id;
+            isActive = locationInfo.is_active !== false;
+          } else {
+            locationName = sensor.sensor_location || `Location ${sensor.id}`;
+            locationCoordinates = sensor.coordinates || {
               latitude: sensor.latitude,
               longitude: sensor.longitude
-            },
-            pH: latestReading.pH !== undefined ? parseFloat(latestReading.pH) : "N/A",
-            soilMoisture: latestReading.soilMoisture !== undefined ? parseFloat(latestReading.soilMoisture) : "N/A",
-            temperature: latestReading.temperature !== undefined ? parseFloat(latestReading.temperature) : "N/A",
-            timestamp: latestReading.timestamp || null,
-            readings: [],
-            readingsLoaded: false,
-            // Provide default location name
-            location: sensor.sensor_location || `Sensor ${sensor.id.substring(0, 8)}`,
+            };
+          }
+
+          return {
+            ...sensor,
+            location: locationName,
+            locationCoordinates: locationCoordinates,
+            sensor_id: sensorId || sensor.id,
+            is_active: isActive,
+            locationRef: sensor.location_id,
+            location_id: locationId,
             status: sensor.sensor_status || "Unknown",
             statusDescription: `Sensor is currently ${sensor.sensor_status || 'Unknown'}`,
             lastCalibration: sensor.sensor_lastCalibrationDate || null,
           };
         });
-        
+
         setSensors(processedSensors);
-        
-        // Try to fetch locations but don't fail if it doesn't work
-        try {
-          const locationsData = await apiService.getLocations();
-          const locationsMap = {};
-          
-          if (Array.isArray(locationsData)) {
-            locationsData.forEach((location) => {
-              if (location && location.id) {
-                locationsMap[location.id] = {
-                  id: location.id,
-                  location_name: location.location_name || 'Unknown Location',
-                  location_latitude: location.location_latitude,
-                  location_longitude: location.location_longitude,
-                };
-              }
-            });
-          }
-          
-          setLocations(locationsMap);
-          console.log(`📍 Loaded ${Object.keys(locationsMap).length} locations`);
-        } catch (locationError) {
-          console.warn('Could not load locations:', locationError.message);
-          setLocations({});
-        }
-        
+        setLocations(locationsData);
+
       } catch (error) {
-        console.error("❌ Error fetching sensor data:", error);
+        console.error("Error fetching data:", error);
         setError('Failed to fetch sensor data: ' + error.message);
         showNotification('Error loading sensors: ' + error.message, 'error');
       } finally {
@@ -1046,34 +907,123 @@ function Sensors() {
     };
 
     fetchData();
-  }, [showNotification]);
+  }, [fetchSensorsFromBackend, fetchLocations, showNotification]);
 
   // ============================================================================
-  // HANDLE ML GENERATION WITH FALLBACK
+  // REFRESH HANDLER - UPDATED
+  // ============================================================================
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    setError(null);
+    
+    try {
+      const [mlStatus, datasetStatus] = await Promise.all([
+        backendMLService.getMLStatus(),
+        backendMLService.getDatasetStatus().catch(() => null)
+      ]);
+      
+      setMlServiceStatus({
+        ...mlStatus,
+        ...(datasetStatus || {})
+      });
+      
+      const [sensorsData, locationsData] = await Promise.all([
+        fetchSensorsFromBackend(),
+        fetchLocations()
+      ]);
+
+      const processedSensors = sensorsData.map(sensor => {
+        let locationId = sensor.location_id;
+        let locationInfo = null;
+        
+        const possibleKeys = [
+          sensor.location_id,
+          sensor.location_id?.split('/').pop(),
+          sensor.id,
+        ].filter(Boolean);
+
+        for (const key of possibleKeys) {
+          if (locationsData[key]) {
+            locationInfo = locationsData[key];
+            locationId = key;
+            break;
+          }
+        }
+
+        let locationName = 'Unknown Location';
+        let locationCoordinates = null;
+        let sensorId = null;
+        let isActive = true;
+
+        if (locationInfo) {
+          locationName = locationInfo.location_name || 'Unknown Location';
+          locationCoordinates = {
+            latitude: locationInfo.location_latitude || sensor.latitude,
+            longitude: locationInfo.location_longitude || sensor.longitude
+          };
+          sensorId = locationInfo.sensor_id;
+          isActive = locationInfo.is_active !== false;
+        } else {
+          locationName = sensor.sensor_location || `Location ${sensor.id}`;
+          locationCoordinates = sensor.coordinates || {
+            latitude: sensor.latitude,
+            longitude: sensor.longitude
+          };
+        }
+
+        return {
+          ...sensor,
+          location: locationName,
+          locationCoordinates: locationCoordinates,
+          sensor_id: sensorId || sensor.id,
+          is_active: isActive,
+          locationRef: sensor.location_id,
+          location_id: locationId,
+          status: sensor.sensor_status || "Unknown",
+          statusDescription: `Sensor is currently ${sensor.sensor_status || 'Unknown'}`,
+          lastCalibration: sensor.sensor_lastCalibrationDate || null,
+        };
+      });
+
+      setSensors(processedSensors);
+      setLocations(locationsData);
+      showNotification('Data refreshed successfully', 'success');
+    } catch (error) {
+      console.error('❌ Refresh failed:', error);
+      showNotification('Failed to refresh data', 'error');
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 1000);
+    }
+  };
+
+  // ============================================================================
+  // BACKEND ML GENERATION
   // ============================================================================
   const handleGenerateML = async (sensor) => {
     const sensorId = sensor.id;
     
-    // Validate data first
-    const { pH, soilMoisture, temperature } = sensor;
-    const validation = validateSensorData({ pH, soilMoisture, temperature });
-    
-    if (!validation.isValid) {
-      showNotification(`Invalid sensor data: ${validation.errors.join(', ')}`, 'error');
-      return;
-    }
-    
-    if (backendStatus !== 'healthy') {
-      showNotification(
-        'Backend is not available. Please test connection first and ensure backend is running.',
-        'error'
-      );
-      return;
-    }
-    
     try {
       setProcessingMLSensor(sensorId);
-      setMlProgress({ step: 'Initializing ML request...', percent: 10 });
+      setMlProgress({ step: 'Initializing...', percent: 10 });
+      
+      const { pH, soilMoisture, temperature } = sensor;
+      
+      setMlProgress({ step: 'Validating sensor data...', percent: 20 });
+      
+      const validation = validateSensorData({ pH, soilMoisture, temperature });
+      
+      if (!validation.isValid) {
+        throw new Error(`Invalid sensor data: ${validation.errors.join(', ')}`);
+      }
+      
+      if (validation.hasWarnings) {
+        showNotification(
+          `Data warnings: ${validation.warnings.join('; ')}`,
+          'warning'
+        );
+      }
+      
+      setMlProgress({ step: 'Preparing data for ML processing...', percent: 30 });
       
       const sensorData = {
         ph: parseFloat(pH),
@@ -1081,7 +1031,7 @@ function Sensors() {
         temperature: parseFloat(temperature)
       };
       
-      setMlProgress({ step: 'Sending to backend ML service...', percent: 30 });
+      setMlProgress({ step: 'Sending to ML backend...', percent: 50 });
       
       const result = await backendMLService.generateRecommendations(
         sensorId,
@@ -1090,44 +1040,38 @@ function Sensors() {
         sensor.coordinates
       );
       
-      setMlProgress({ step: 'Processing results...', percent: 90 });
-      
-      if (result.success && result.recommendations && result.recommendations.length > 0) {
-        const topTree = result.recommendations[0];
-        showNotification(
-          `✅ ML Complete! Top recommendation: ${topTree.commonName} (${(topTree.confidenceScore * 100).toFixed(1)}% confidence)`,
-          'success'
-        );
-
-        setMlProgress({ step: 'Complete!', percent: 100 });
-
-        // Navigate to recommendations page
-        setTimeout(() => {
-          navigate('/recommendations');
-        }, 2000);
-      } else {
-        throw new Error('No recommendations received from ML service');
+      if (!result.success) {
+        throw new Error(result.error || 'Backend ML processing failed');
       }
       
+      setMlProgress({ step: 'Complete!', percent: 100 });
+
+      const topTree = result.recommendations[0];
+      showNotification(
+        `✅ ML Complete! Top recommendation: ${topTree.commonName} (${(topTree.confidenceScore * 100).toFixed(1)}% confidence)`,
+        'success'
+      );
+
+      setTimeout(() => {
+        navigate('/recommendations');
+      }, 2000);
+
     } catch (error) {
       console.error('❌ ML Generation failed:', error);
       
-      let errorMessage = error.message;
-      let severity = 'error';
+      let errorMessage = 'ML recommendation failed: ';
       
-      // Provide helpful suggestions based on error
-      if (error.message.includes('starting up')) {
-        errorMessage = 'Backend is starting up (common on free hosting). Please wait 30-60 seconds and try again.';
-        severity = 'warning';
-      } else if (error.message.includes('timeout')) {
-        errorMessage = 'ML request timed out. The backend might be overloaded. Please try again.';
-        severity = 'warning';
-      } else if (error.message.includes('cold-starting')) {
-        errorMessage = 'Backend is cold-starting. First requests after inactivity can be slow on free hosting.';
-        severity = 'info';
+      if (error.message.includes('Invalid sensor data')) {
+        errorMessage += error.message;
+      } else if (error.message.includes('ML service unavailable')) {
+        errorMessage += 'ML service is unavailable. Please ensure the backend is running and dataset is loaded.';
+      } else if (error.message.includes('Dataset not loaded')) {
+        errorMessage += 'Dataset not loaded. Please upload a dataset file first.';
+      } else {
+        errorMessage += error.message || 'Unknown error occurred.';
       }
       
-      showNotification(`ML failed: ${errorMessage}`, severity);
+      showNotification(errorMessage, 'error');
       
     } finally {
       setProcessingMLSensor(null);
@@ -1138,11 +1082,58 @@ function Sensors() {
   // ============================================================================
   // EVENT HANDLERS
   // ============================================================================
+  const handleDrawerToggle = () => setMobileOpen(!mobileOpen);
+  const handleLogout = () => logout();
   const handleChangePage = (event, newPage) => setPage(newPage);
   const handleChangeRowsPerPage = (event) => {
     setRowsPerPage(parseInt(event.target.value, 10));
     setPage(0);
   };
+
+  const handleSensorClick = async (sensor) => {
+    if (!sensor.readingsLoaded) {
+      const history = await fetchSensorHistory(sensor.id);
+      sensor.readings = history;
+      sensor.readingsLoaded = true;
+    }
+    
+    setSelectedSensor(sensor);
+    setSensorDetailOpen(true);
+  };
+
+  const handleCloseSensorDetail = () => {
+    setSensorDetailOpen(false);
+    setSelectedSensor(null);
+  };
+
+  // ============================================================================
+  // MEMOIZED VALUES
+  // ============================================================================
+  const displayedSensors = useMemo(() => {
+    return sensors.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+  }, [sensors, page, rowsPerPage]);
+
+  const getBackendStatusInfo = () => {
+    switch (backendStatus) {
+      case 'healthy':
+        return { color: 'success', text: 'Backend Connected', icon: <CheckCircleIcon /> };
+      case 'unavailable':
+        return { color: 'warning', text: 'Backend Unavailable', icon: <WarningIcon /> };
+      default:
+        return { color: 'info', text: 'Checking Backend...', icon: <InfoIcon /> };
+    }
+  };
+
+  const getMLStatusInfo = () => {
+    if (!mlServiceStatus.datasetLoaded) {
+      return { color: 'warning', text: 'Dataset Required', icon: <WarningIcon /> };
+    }
+    return { color: 'success', text: 'ML Ready', icon: <CheckCircleIcon /> };
+  };
+
+  const backendStatusInfo = getBackendStatusInfo();
+  const mlStatusInfo = getMLStatusInfo();
+  const canGenerateML = backendStatus === 'healthy' && mlServiceStatus.datasetLoaded;
 
   // ============================================================================
   // RENDER
@@ -1171,48 +1162,70 @@ function Sensors() {
               ReForest Sensors
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              {sensors.length} sensor{sensors.length !== 1 ? 's' : ''} loaded
-              {backendStatus === 'healthy' && mlServiceStatus.datasetLoaded && ' • ML Ready'}
+              {sensors.length} sensor{sensors.length !== 1 ? 's' : ''} 
+              {Object.keys(locations).length > 0 && ` • ${Object.keys(locations).length} locations`}
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-            <Button 
-              variant="outlined" 
-              onClick={handleTestConnectivity}
-              disabled={testingConnectivity}
-              startIcon={testingConnectivity ? <CircularProgress size={16} /> : <RefreshIcon />}
+            <Chip
+              label={backendStatusInfo.text}
+              color={backendStatusInfo.color}
+              icon={backendStatusInfo.icon}
               size="small"
-            >
-              {testingConnectivity ? 'Testing...' : 'Test Backend'}
-            </Button>
+              variant={backendStatus === 'healthy' ? 'filled' : 'outlined'}
+            />
+            <Chip
+              label={mlStatusInfo.text}
+              color={mlStatusInfo.color}
+              icon={mlStatusInfo.icon}
+              size="small"
+              variant={mlServiceStatus.datasetLoaded ? 'filled' : 'outlined'}
+            />
+            <Tooltip title="Refresh all data">
+              <Button 
+                variant="outlined" 
+                onClick={handleRefresh} 
+                disabled={isRefreshing || loading}
+                startIcon={isRefreshing ? <CircularProgress size={16} /> : <RefreshIcon />}
+              >
+                {isRefreshing ? 'Refreshing...' : 'Refresh'}
+              </Button>
+            </Tooltip>
           </Box>
         </Box>
 
-        {/* BACKEND STATUS CARD */}
-        <BackendStatusCard
-          backendStatus={backendStatus}
+        {/* DATASET UPLOAD SECTION */}
+        <DatasetUploadSection
           mlServiceStatus={mlServiceStatus}
-          onTestConnectivity={handleTestConnectivity}
-          testingConnectivity={testingConnectivity}
+          onUpload={handleDatasetUpload}
+          onReload={handleReloadDataset}
+          reloadingDataset={reloadingDataset}
+          uploadingDataset={uploadingDataset}
         />
 
-        {/* DATASET SECTION - ONLY SHOW IF BACKEND IS HEALTHY */}
-        {backendStatus === 'healthy' && (
-          <DatasetUploadSection
-            mlServiceStatus={mlServiceStatus}
-            onUpload={handleDatasetUpload}
-            onReload={handleReloadDataset}
-            reloadingDataset={reloadingDataset}
-            uploadingDataset={uploadingDataset}
-          />
+        {/* LOADING BAR */}
+        {(isRefreshing || loading) && <LinearProgress sx={{ mb: 2 }} />}
+        
+        {/* ERROR ALERT */}
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+            {error}
+          </Alert>
         )}
 
-        {/* SENSORS TABLE */}
+        {/* Service Status Warnings */}
+        {backendStatus === 'unavailable' && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            Backend server is unavailable. ML recommendations will not work. Please ensure the backend is running on {BACKEND_CONFIG.BASE_URL}.
+          </Alert>
+        )}
+
+        {/* MAIN CONTENT */}
         {loading ? (
           <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 300 }}>
             <CircularProgress sx={{ mb: 2 }} />
             <Typography variant="body1" color="textSecondary">
-              Loading sensors...
+              Loading sensors from backend...
             </Typography>
           </Box>
         ) : sensors.length === 0 ? (
@@ -1222,8 +1235,11 @@ function Sensors() {
               No sensors found
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Check your database connection and ensure sensors are configured.
+              Ensure sensors are configured in the Realtime Database and the backend is running.
             </Typography>
+            <Button variant="outlined" onClick={handleRefresh} startIcon={<RefreshIcon />}>
+              Retry
+            </Button>
           </Card>
         ) : (
           <Paper sx={{ width: '100%', mb: 2, borderRadius: 2, overflow: 'hidden', boxShadow: 3 }}>
@@ -1242,42 +1258,51 @@ function Sensors() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {sensors.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((sensor) => {
+                  {displayedSensors.map((sensor) => {
                     const validation = validateSensorData({
                       pH: sensor.pH,
                       soilMoisture: sensor.soilMoisture,
                       temperature: sensor.temperature
                     });
 
-                    const canGenerate = validation.isValid && backendStatus === 'healthy' && mlServiceStatus.datasetLoaded;
+                    const canGenerateThisSensor = validation.isValid && canGenerateML;
 
                     return (
                       <TableRow 
                         key={sensor.id} 
-                        hover
+                        hover 
+                        onClick={() => handleSensorClick(sensor)}
                         sx={{ 
                           '&:hover': { bgcolor: 'rgba(46, 125, 50, 0.04)' },
+                          cursor: 'pointer'
                         }}
                       >
                         <TableCell>
                           <Box sx={{ display: 'flex', alignItems: 'center' }}>
                             <SensorsIcon sx={{ mr: 1, color: 'primary.main', fontSize: 20 }} />
-                            <Typography variant="body2" fontWeight="medium">
-                              {sensor.id.substring(0, 12)}...
-                            </Typography>
+                            <Typography variant="body2" fontWeight="medium">{sensor.id}</Typography>
                           </Box>
                         </TableCell>
                         <TableCell>
-                          <Typography variant="body2" noWrap sx={{ maxWidth: 200, fontWeight: 'medium' }}>
-                            {sensor.location}
-                          </Typography>
+                          <Box>
+                            <Typography variant="body2" noWrap sx={{ maxWidth: 200, fontWeight: 'medium' }}>
+                              {sensor.location}
+                            </Typography>
+                            {sensor.locationCoordinates && (
+                              <Typography variant="caption" color="text.secondary">
+                                {sensor.locationCoordinates.latitude?.toFixed(6)}°, {sensor.locationCoordinates.longitude?.toFixed(6)}°
+                              </Typography>
+                            )}
+                          </Box>
                         </TableCell>
                         <TableCell>
                           <Typography 
                             variant="body2" 
                             sx={{ 
-                              color: sensor.pH !== "N/A" ? 'success.main' : 'text.secondary',
-                              fontWeight: 'medium'
+                              color: sensor.pH !== "N/A" && sensor.pH >= SensorDataSchema.pH.optimal[0] && sensor.pH <= SensorDataSchema.pH.optimal[1] 
+                                ? 'success.main' 
+                                : sensor.pH !== "N/A" ? 'warning.main' : 'text.secondary',
+                              fontWeight: sensor.pH !== "N/A" ? 'medium' : 'normal'
                             }}
                           >
                             {formatValue(sensor.pH)}
@@ -1287,8 +1312,10 @@ function Sensors() {
                           <Typography 
                             variant="body2"
                             sx={{ 
-                              color: sensor.soilMoisture !== "N/A" ? 'success.main' : 'text.secondary',
-                              fontWeight: 'medium'
+                              color: sensor.soilMoisture !== "N/A" && sensor.soilMoisture >= SensorDataSchema.soilMoisture.optimal[0] 
+                                ? 'success.main' 
+                                : sensor.soilMoisture !== "N/A" ? 'error.main' : 'text.secondary',
+                              fontWeight: sensor.soilMoisture !== "N/A" ? 'medium' : 'normal'
                             }}
                           >
                             {formatValue(sensor.soilMoisture, '%')}
@@ -1298,8 +1325,10 @@ function Sensors() {
                           <Typography 
                             variant="body2"
                             sx={{ 
-                              color: sensor.temperature !== "N/A" ? 'success.main' : 'text.secondary',
-                              fontWeight: 'medium'
+                              color: sensor.temperature !== "N/A" && sensor.temperature >= SensorDataSchema.temperature.optimal[0] && sensor.temperature <= SensorDataSchema.temperature.optimal[1]
+                                ? 'success.main' 
+                                : sensor.temperature !== "N/A" ? 'warning.main' : 'text.secondary',
+                              fontWeight: sensor.temperature !== "N/A" ? 'medium' : 'normal'
                             }}
                           >
                             {formatValue(sensor.temperature, '°C')}
@@ -1314,27 +1343,29 @@ function Sensors() {
                           <Chip
                             label={sensor.status}
                             color={getStatusColor(sensor.status)}
+                            icon={getStatusIcon(sensor.status)}
                             size="small"
+                            sx={{ minWidth: 100 }}
                           />
                         </TableCell>
-                        <TableCell align="center">
+                        <TableCell align="center" onClick={(e) => e.stopPropagation()}>
                           <Tooltip title={
-                            !canGenerate 
-                              ? !validation.isValid
-                                ? `Invalid data: ${validation.errors.join(', ')}`
-                                : backendStatus !== 'healthy'
-                                ? 'Backend not available'
-                                : !mlServiceStatus.datasetLoaded
-                                ? 'Dataset not loaded'
-                                : 'Cannot generate ML'
-                              : "Generate ML recommendations"
+                            !canGenerateThisSensor 
+                              ? !canGenerateML
+                                ? 'ML service not ready. Upload dataset first.'
+                                : `Cannot generate: ${validation.errors.join(', ')}`
+                              : "Generate ML recommendations with backend processing"
                           }>
                             <span>
                               <Button 
                                 variant="contained" 
                                 size="small" 
                                 onClick={() => handleGenerateML(sensor)}
-                                disabled={!canGenerate || processingMLSensor === sensor.id}
+                                disabled={
+                                  processingMLSensor === sensor.id ||
+                                  loading || 
+                                  !canGenerateThisSensor
+                                }
                                 sx={{ 
                                   minWidth: 100,
                                   bgcolor: '#2e7d32',
@@ -1346,7 +1377,7 @@ function Sensors() {
                                     : <ScienceIcon />
                                 }
                               >
-                                {processingMLSensor === sensor.id ? 'Processing...' : 'Generate ML'}
+                                {processingMLSensor === sensor.id ? `${mlProgress.percent}%` : 'Generate ML'}
                               </Button>
                             </span>
                           </Tooltip>
@@ -1369,15 +1400,218 @@ function Sensors() {
           </Paper>
         )}
 
+        {/* SENSOR DETAIL DIALOG */}
+        <Dialog
+          open={sensorDetailOpen}
+          onClose={handleCloseSensorDetail}
+          maxWidth="sm"
+          fullWidth={false}
+          PaperProps={{
+            sx: { borderRadius: 1, width: '100%', maxWidth: 600 },
+          }}
+        >
+          <DialogTitle>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <SensorsIcon sx={{ fontSize: 20 }} />
+                Sensor Details Information
+              </Typography>
+            </Box>
+          </DialogTitle>
+
+          <DialogContent dividers>
+            {selectedSensor && (
+              <Box sx={{ width: '100%', maxWidth: 520, mx: 'auto' }}>
+                <Grid container spacing={3}>
+                  <Grid item xs={12}>
+                    <Card variant="outlined">
+                      <CardContent>
+                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                          <LocationIcon sx={{ fontSize: 16, verticalAlign: 'middle', mr: 0.5 }} />
+                          Location Information
+                        </Typography>
+                        <Typography variant="h6" sx={{ mb: 1 }}>
+                          {selectedSensor.location}
+                        </Typography>
+
+                        {selectedSensor.locationCoordinates && (
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                            <strong>Coordinates:</strong>{' '}
+                            {selectedSensor.locationCoordinates.latitude?.toFixed(6)}°,{' '}
+                            {selectedSensor.locationCoordinates.longitude?.toFixed(6)}°
+                          </Typography>
+                        )}
+
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            <strong>Status:</strong>
+                          </Typography>
+                          <Chip
+                            label={selectedSensor.is_active ? 'Active' : 'Inactive'}
+                            color={selectedSensor.is_active ? 'success' : 'error'}
+                            size="small"
+                          />
+                        </Box>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+
+                  <Grid item xs={12}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
+                      <Card variant="outlined" sx={{ flex: 1, minWidth: 150, bgcolor: '#e3f2fd', textAlign: 'center' }}>
+                        <CardContent>
+                          <Typography variant="subtitle2" color="text.secondary">
+                            <ScienceIcon sx={{ fontSize: 16, verticalAlign: 'middle', mr: 0.5 }} />
+                            pH Level
+                          </Typography>
+                          <Typography variant="h5" sx={{ fontWeight: 600 }}>
+                            {formatValue(selectedSensor.pH)}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Optimal: {SensorDataSchema.pH.optimal.join(' - ')}
+                          </Typography>
+                        </CardContent>
+                      </Card>
+
+                      <Card variant="outlined" sx={{ flex: 1, minWidth: 150, bgcolor: '#e8f5e9', textAlign: 'center' }}>
+                        <CardContent>
+                          <Typography variant="subtitle2" color="text.secondary">
+                            <WaterDropIcon sx={{ fontSize: 16, verticalAlign: 'middle', mr: 0.5 }} />
+                            Soil Moisture
+                          </Typography>
+                          <Typography variant="h5" sx={{ fontWeight: 600 }}>
+                            {formatValue(selectedSensor.soilMoisture, '%')}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Optimal: {SensorDataSchema.soilMoisture.optimal.join(' - ')}%
+                          </Typography>
+                        </CardContent>
+                      </Card>
+
+                      <Card variant="outlined" sx={{ flex: 1, minWidth: 150, bgcolor: '#fff3e0', textAlign: 'center' }}>
+                        <CardContent>
+                          <Typography variant="subtitle2" color="text.secondary">
+                            <ThermostatIcon sx={{ fontSize: 16, verticalAlign: 'middle', mr: 0.5 }} />
+                            Temperature
+                          </Typography>
+                          <Typography variant="h5" sx={{ fontWeight: 600 }}>
+                            {formatValue(selectedSensor.temperature, '°C')}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Optimal: {SensorDataSchema.temperature.optimal.join(' - ')}°C
+                          </Typography>
+                        </CardContent>
+                      </Card>
+                    </Box>
+                  </Grid>
+
+                  <Grid item xs={12}>
+                    <Card variant="outlined">
+                      <CardContent>
+                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                          Status & Calibration
+                        </Typography>
+                        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            {getStatusIcon(selectedSensor.status)}
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                fontWeight: 600,
+                                color:
+                                  getStatusColor(selectedSensor.status) === 'success'
+                                    ? 'success.main'
+                                    : getStatusColor(selectedSensor.status) === 'warning'
+                                    ? 'warning.main'
+                                    : getStatusColor(selectedSensor.status) === 'error'
+                                    ? 'error.main'
+                                    : 'text.primary',
+                              }}
+                            >
+                              {selectedSensor.status}
+                            </Typography>
+                          </Box>
+
+                          <Typography variant="body2" color="text.secondary">
+                            Last calibration: {selectedSensor.lastCalibration || 'N/A'}
+                          </Typography>
+                        </Box>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                </Grid>
+
+                <Divider sx={{ my: 3 }} />
+                <SensorHistoryGrid readings={selectedSensor.readings || []} />
+              </Box>
+            )}
+          </DialogContent>
+
+          <DialogActions sx={{ px: 3, pb: 2 }}>
+            <Button onClick={handleCloseSensorDetail} variant="outlined" color="inherit">
+              Close
+            </Button>
+
+            {selectedSensor &&
+              validateSensorData({
+                pH: selectedSensor.pH,
+                soilMoisture: selectedSensor.soilMoisture,
+                temperature: selectedSensor.temperature,
+              }).isValid &&
+              canGenerateML && (
+                <Button
+                  variant="contained"
+                  startIcon={<ScienceIcon />}
+                  sx={{
+                    bgcolor: '#2e7d32',
+                    '&:hover': { bgcolor: '#1b5e20' },
+                  }}
+                  onClick={() => {
+                    handleCloseSensorDetail();
+                    handleGenerateML(selectedSensor);
+                  }}
+                >
+                  Generate ML Recommendations
+                </Button>
+              )}
+          </DialogActions>
+        </Dialog>
+
+        {/* ML PROGRESS DIALOG */}
+        <Dialog 
+          open={processingMLSensor !== null}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogContent sx={{ textAlign: 'center', py: 4 }}>
+            <CircularProgress size={60} sx={{ mb: 2 }} />
+            <Typography variant="h6" gutterBottom>
+              Processing ML Algorithm
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              {mlProgress.step}
+            </Typography>
+            <LinearProgress variant="determinate" value={mlProgress.percent} sx={{ height: 8, borderRadius: 4 }} />
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+              {mlProgress.percent}% Complete
+            </Typography>
+            {backendStatus === 'healthy' && (
+              <Typography variant="caption" color="primary" sx={{ mt: 1, display: 'block' }}>
+                Using Random Forest ML model
+              </Typography>
+            )}
+          </DialogContent>
+        </Dialog>
+
         {/* NOTIFICATIONS */}
         <Snackbar
           open={snackbar.open}
           autoHideDuration={6000}
-          onClose={() => setSnackbar({ ...snackbar, open: false })}
+          onClose={handleCloseSnackbar}
           anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         >
           <Alert 
-            onClose={() => setSnackbar({ ...snackbar, open: false })} 
+            onClose={handleCloseSnackbar} 
             severity={snackbar.severity} 
             sx={{ width: '100%', minWidth: 300 }}
           >
