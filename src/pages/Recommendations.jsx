@@ -943,12 +943,7 @@ function Recommendations() {
                                   <Typography variant="body2">
                                     pH Level: {selectedReco.sensorData.pH}
                                   </Typography>
-                                  <Typography variant="body2" color="text.secondary">
-                                    Recorded:{' '}
-                                    {selectedReco.sensorData.timestamp
-                                      ? new Date(selectedReco.sensorData.timestamp).toLocaleString()
-                                      : 'N/A'}
-                                  </Typography>
+                                 
                                 </>
                               ) : (
                                 <Typography variant="body2" color="text.secondary">
