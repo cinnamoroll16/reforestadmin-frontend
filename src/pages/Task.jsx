@@ -978,8 +978,8 @@ const SeedlingAssignmentPage = () => {
               >
                 <Typography variant="body2" fontWeight="600">
                   {hasRecommendation 
-                    ? "🌱 Ready for seedling assignment" 
-                    : "⚠️ Select a recommendation to assign seedlings"
+                    ? " Ready for seedling assignment" 
+                    : " Select a recommendation to assign seedlings"
                   }
                 </Typography>
               </Alert>
@@ -1203,7 +1203,7 @@ const SeedlingAssignmentPage = () => {
                           No Active Recommendation
                         </Typography>
                         <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)', mb: 2, fontSize: '0.8rem' }}>
-                          Select a recommendation to start assigning seedlings
+                           recommendation to start assigning seedlings
                         </Typography>
                       </Box>
                     )}
@@ -1354,7 +1354,7 @@ const SeedlingAssignmentPage = () => {
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                   {currentRecommendation 
                     ? 'Select planting requests to assign recommended seedlings'
-                    : 'Please select a recommendation first to assign seedlings'
+                    : 'Please  recommendation first to assign seedlings'
                   }
                 </Typography>
               </Box>
