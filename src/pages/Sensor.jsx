@@ -1,4 +1,4 @@
-// src/pages/Sensor.jsx - UPDATED BACKEND DEBUGGING
+// src/pages/Sensor.jsx - COMPLETE FIXED VERSION
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { apiService } from '../services/api';
 import {
@@ -42,7 +42,6 @@ import {
   Refresh as RefreshIcon,
   Info as InfoIcon,
   History as HistoryIcon,
-  Folder as FolderIcon,
   Upload as UploadIcon,
   CloudUpload as CloudUploadIcon,
   Error as ErrorIcon,
@@ -59,13 +58,7 @@ const drawerWidth = 240;
 // BACKEND API CONFIGURATION - UPDATED WITH BETTER DEBUGGING
 // ============================================================================
 const BACKEND_CONFIG = {
-  // Try different endpoints
   BASE_URL: process.env.REACT_APP_API_URL || 'https://reforestadmin-backend.vercel.app',
-  // Alternative endpoints if main one fails
-  ALTERNATE_URLS: [
-    'https://reforestadmin-backend.vercel.app',
-    'http://localhost:5000'
-  ],
   ENDPOINTS: {
     ML_RECOMMENDATIONS: '/api/ml/generate-recommendations',
     ML_STATUS: '/api/ml/status',
@@ -79,14 +72,23 @@ const BACKEND_CONFIG = {
     LOCATIONS: '/api/locations',
     LOCATION_BY_ID: (locationId) => `/api/locations/${locationId}`,
     HEALTH: '/health',
-    ROOT: '/'  // Try root endpoint as well
+    ROOT: '/'
   },
   MAX_RETRIES: 2,
   RETRY_DELAY: 1000
 };
 
 // ============================================================================
-// HELPER FUNCTIONS
+// VALIDATION SCHEMA - ADDED MISSING DEFINITION
+// ============================================================================
+const SensorDataSchema = {
+  pH: { min: 0, max: 14, required: true, optimal: [6.0, 8.0] },
+  soilMoisture: { min: 0, max: 100, required: true, optimal: [30, 70] },
+  temperature: { min: -10, max: 60, required: true, optimal: [20, 35] }
+};
+
+// ============================================================================
+// HELPER FUNCTIONS - ADDED MISSING FUNCTIONS
 // ============================================================================
 
 // Enhanced validation with warnings
@@ -132,6 +134,52 @@ const validateSensorData = (sensorData) => {
     warnings,
     hasWarnings: warnings.length > 0
   };
+};
+
+// Format timestamp
+const formatTimestamp = (timestamp) => {
+  if (!timestamp) return "N/A";
+  
+  try {
+    const date = new Date(timestamp);
+    return date.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  } catch (error) {
+    return "Invalid date";
+  }
+};
+
+// Format value with units
+const formatValue = (value, unit = '') => {
+  if (value === "N/A" || value === null || value === undefined) {
+    return "N/A";
+  }
+  const numValue = parseFloat(value);
+  return isNaN(numValue) ? "N/A" : `${numValue.toFixed(1)}${unit}`;
+};
+
+// Get status color
+const getStatusColor = (status) => {
+  switch (status?.toLowerCase()) {
+    case 'active': return 'success';
+    case 'inactive': return 'error';
+    case 'under maintenance': return 'warning';
+    default: return 'default';
+  }
+};
+
+// Get status icon
+const getStatusIcon = (status) => {
+  switch (status?.toLowerCase()) {
+    case 'active': return <CheckCircleIcon />;
+    case 'inactive': return <WarningIcon />;
+    default: return <InfoIcon />;
+  }
 };
 
 // Backend ML API service with comprehensive debugging
@@ -404,10 +452,156 @@ const backendMLService = {
   }
 };
 
-// ... (rest of the helper functions remain the same) ...
+// ============================================================================
+// DATASET UPLOAD COMPONENT - FIXED DEFINITION
+// ============================================================================
+const DatasetUploadSection = ({ 
+  mlServiceStatus, 
+  onUpload, 
+  onReload,
+  reloadingDataset,
+  uploadingDataset 
+}) => {
+  const [selectedFile, setSelectedFile] = useState(null);
+  const fileInputRef = React.useRef(null);
+
+  const handleFileSelect = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      const validTypes = [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-excel',
+        'text/csv',
+      ];
+      
+      if (!validTypes.includes(file.type)) {
+        alert('Please select a valid Excel or CSV file (.xlsx, .xls, .csv)');
+        return;
+      }
+      
+      if (file.size > 10 * 1024 * 1024) { // 10MB limit
+        alert('File size must be less than 10MB');
+        return;
+      }
+      
+      setSelectedFile(file);
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!selectedFile) return;
+    await onUpload(selectedFile);
+    setSelectedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleCancel = () => {
+    setSelectedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  return (
+    <Paper sx={{ mb: 3, p: 2.5, borderRadius: 2, boxShadow: 1 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+        <Typography variant="h6" fontWeight="600">
+          Tree Dataset Management
+        </Typography>
+        <Chip 
+          label={mlServiceStatus.datasetLoaded ? 'Dataset Loaded' : 'Dataset Required'} 
+          color={mlServiceStatus.datasetLoaded ? 'success' : 'warning'}
+          size="small"
+          variant={mlServiceStatus.datasetLoaded ? 'filled' : 'outlined'}
+        />
+      </Box>
+
+      {mlServiceStatus.datasetLoaded && mlServiceStatus.speciesCount && (
+        <Alert severity="success" sx={{ mb: 2 }}>
+          Dataset loaded successfully! {mlServiceStatus.speciesCount} tree species available for recommendations.
+        </Alert>
+      )}
+
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {!selectedFile ? (
+          <Button
+            variant="contained"
+            component="label"
+            startIcon={<CloudUploadIcon />}
+            sx={{ 
+              bgcolor: '#2e7d32',
+              '&:hover': { bgcolor: '#1b5e20' },
+              textTransform: 'none',
+              fontWeight: 500,
+              alignSelf: 'flex-start'
+            }}
+          >
+            {mlServiceStatus.datasetLoaded ? 'Update Dataset' : 'Upload Tree Dataset'}
+            <input
+              type="file"
+              hidden
+              accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
+              onChange={handleFileSelect}
+              ref={fileInputRef}
+            />
+          </Button>
+        ) : (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Alert severity="info" sx={{ mb: 1 }}>
+              Selected file: <strong>{selectedFile.name}</strong> ({Math.round(selectedFile.size / 1024)} KB)
+            </Alert>
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              <Button
+                variant="contained"
+                onClick={handleUpload}
+                disabled={uploadingDataset}
+                startIcon={uploadingDataset ? <CircularProgress size={16} /> : <UploadIcon />}
+                sx={{ 
+                  bgcolor: '#2e7d32',
+                  '&:hover': { bgcolor: '#1b5e20' },
+                  textTransform: 'none'
+                }}
+              >
+                {uploadingDataset ? 'Uploading...' : 'Upload Dataset'}
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={handleCancel}
+                disabled={uploadingDataset}
+                sx={{ textTransform: 'none' }}
+              >
+                Cancel
+              </Button>
+            </Box>
+          </Box>
+        )}
+        
+        {mlServiceStatus.datasetLoaded && (
+          <Button
+            variant="outlined"
+            onClick={onReload}
+            disabled={reloadingDataset}
+            startIcon={reloadingDataset ? <CircularProgress size={16} /> : <RefreshIcon />}
+            sx={{ textTransform: 'none', alignSelf: 'flex-start' }}
+          >
+            {reloadingDataset ? 'Reloading...' : 'Reload Dataset'}
+          </Button>
+        )}
+      </Box>
+      
+      {mlServiceStatus.error && !mlServiceStatus.datasetLoaded && (
+        <Alert severity="warning" sx={{ mt: 2 }}>
+          Unable to check dataset status: {mlServiceStatus.error}
+        </Alert>
+      )}
+    </Paper>
+  );
+};
 
 // ============================================================================
-// BACKEND STATUS CARD COMPONENT - NEW FOR DEBUGGING
+// BACKEND STATUS CARD COMPONENT
 // ============================================================================
 const BackendStatusCard = ({ 
   backendStatus, 
@@ -538,7 +732,7 @@ const BackendStatusCard = ({
 };
 
 // ============================================================================
-// MAIN COMPONENT - UPDATED
+// MAIN COMPONENT
 // ============================================================================
 function Sensors() {
   const theme = useTheme();
@@ -596,9 +790,15 @@ function Sensors() {
   };
 
   // ============================================================================
-  // BACKEND CONNECTIVITY TEST - NEW FUNCTION
+  // EVENT HANDLERS - ADDED MISSING HANDLERS
   // ============================================================================
-  const testBackendConnectivity = async () => {
+  const handleDrawerToggle = () => setMobileOpen(!mobileOpen);
+  const handleLogout = () => logout();
+
+  // ============================================================================
+  // BACKEND CONNECTIVITY TEST
+  // ============================================================================
+  const handleTestConnectivity = async () => {
     setTestingConnectivity(true);
     try {
       console.log('🔧 Starting manual backend connectivity test...');
@@ -627,6 +827,65 @@ function Sensors() {
       showNotification('Connectivity test failed: ' + error.message, 'error');
     } finally {
       setTestingConnectivity(false);
+    }
+  };
+
+  // ============================================================================
+  // DATASET UPLOAD HANDLER - ADDED MISSING FUNCTION
+  // ============================================================================
+  const handleDatasetUpload = async (file) => {
+    setUploadingDataset(true);
+    try {
+      const result = await backendMLService.uploadDataset(file);
+      
+      if (result.success) {
+        showNotification('Dataset uploaded and loaded successfully!', 'success');
+        
+        // Refresh the ML status
+        const mlStatus = await backendMLService.getMLStatus();
+        const datasetStatus = await backendMLService.getDatasetStatus().catch(() => null);
+        setMlServiceStatus({
+          ...mlStatus,
+          ...(datasetStatus || {}),
+          lastCheck: new Date().toISOString()
+        });
+      } else {
+        showNotification('Dataset upload failed: ' + (result.message || 'Unknown error'), 'error');
+      }
+    } catch (error) {
+      console.error('❌ Dataset upload failed:', error);
+      showNotification('Dataset upload failed: ' + error.message, 'error');
+    } finally {
+      setUploadingDataset(false);
+    }
+  };
+
+  // ============================================================================
+  // RELOAD DATASET HANDLER - ADDED MISSING FUNCTION
+  // ============================================================================
+  const handleReloadDataset = async () => {
+    setReloadingDataset(true);
+    try {
+      const result = await backendMLService.reloadDataset();
+      
+      if (result.success) {
+        showNotification('Dataset reloaded successfully', 'success');
+        // Refresh the ML status
+        const mlStatus = await backendMLService.getMLStatus();
+        const datasetStatus = await backendMLService.getDatasetStatus().catch(() => null);
+        setMlServiceStatus({
+          ...mlStatus,
+          ...(datasetStatus || {}),
+          lastCheck: new Date().toISOString()
+        });
+      } else {
+        showNotification('Failed to reload dataset', 'error');
+      }
+    } catch (error) {
+      console.error('❌ Dataset reload failed:', error);
+      showNotification('Failed to reload dataset: ' + error.message, 'error');
+    } finally {
+      setReloadingDataset(false);
     }
   };
 
@@ -877,6 +1136,15 @@ function Sensors() {
   };
 
   // ============================================================================
+  // EVENT HANDLERS
+  // ============================================================================
+  const handleChangePage = (event, newPage) => setPage(newPage);
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
+
+  // ============================================================================
   // RENDER
   // ============================================================================
   return (
@@ -910,8 +1178,8 @@ function Sensors() {
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
             <Button 
               variant="outlined" 
-              onClick={() => testBackendConnectivity()}
-              disabled={testingConnectivity || isRefreshing}
+              onClick={handleTestConnectivity}
+              disabled={testingConnectivity}
               startIcon={testingConnectivity ? <CircularProgress size={16} /> : <RefreshIcon />}
               size="small"
             >
@@ -924,7 +1192,7 @@ function Sensors() {
         <BackendStatusCard
           backendStatus={backendStatus}
           mlServiceStatus={mlServiceStatus}
-          onTestConnectivity={testBackendConnectivity}
+          onTestConnectivity={handleTestConnectivity}
           testingConnectivity={testingConnectivity}
         />
 
@@ -1095,11 +1363,8 @@ function Sensors() {
               count={sensors.length}
               rowsPerPage={rowsPerPage}
               page={page}
-              onPageChange={(e, newPage) => setPage(newPage)}
-              onRowsPerPageChange={(e) => {
-                setRowsPerPage(parseInt(e.target.value, 10));
-                setPage(0);
-              }}
+              onPageChange={handleChangePage}
+              onRowsPerPageChange={handleChangeRowsPerPage}
             />
           </Paper>
         )}
@@ -1108,11 +1373,11 @@ function Sensors() {
         <Snackbar
           open={snackbar.open}
           autoHideDuration={6000}
-          onClose={handleCloseSnackbar}
+          onClose={() => setSnackbar({ ...snackbar, open: false })}
           anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         >
           <Alert 
-            onClose={handleCloseSnackbar} 
+            onClose={() => setSnackbar({ ...snackbar, open: false })} 
             severity={snackbar.severity} 
             sx={{ width: '100%', minWidth: 300 }}
           >
