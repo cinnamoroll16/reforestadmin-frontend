@@ -27,7 +27,7 @@ import PersonIcon from '@mui/icons-material/Person';
 const drawerWidth = 240;
 
 // =============================================================================
-// DATE FORMATTING FUNCTIONS (UPDATED FOR YOUR TIMESTAMP FORMAT)
+// DATE FORMATTING FUNCTIONS - REMOVED TIME
 // =============================================================================
 
 const formatDisplayDate = (dateInput) => {
@@ -65,44 +65,7 @@ const formatDisplayDate = (dateInput) => {
   }
 };
 
-const formatDisplayDateTime = (timestampInput) => {
-  if (!timestampInput) return 'N/A';
-  
-  try {
-    let dateObj;
-    
-    if (timestampInput && typeof timestampInput === 'object' && timestampInput.toDate) {
-      dateObj = timestampInput.toDate();
-    } else if (typeof timestampInput === 'string') {
-      // Handle your specific format: "December 6, 2025 at 4:26:39 PM UTC+8"
-      const normalizedDateStr = timestampInput.replace(' ', ' '); // Replace special space
-      dateObj = new Date(normalizedDateStr);
-    } else if (timestampInput instanceof Date) {
-      dateObj = timestampInput;
-    } else if (timestampInput._seconds !== undefined) {
-      dateObj = new Date(timestampInput._seconds * 1000);
-    } else {
-      return String(timestampInput);
-    }
-    
-    if (dateObj && !isNaN(dateObj.getTime())) {
-      return dateObj.toLocaleString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: true
-      });
-    }
-    
-    return String(timestampInput);
-  } catch (error) {
-    console.error('Error formatting display datetime:', error);
-    return 'Invalid Date';
-  }
-};
+// REMOVED THE formatDisplayDateTime FUNCTION COMPLETELY - NO TIME DISPLAY
 
 // =============================================================================
 // HELPER FUNCTIONS FOR DATA FETCHING
@@ -231,6 +194,7 @@ const fetchSeedlingData = async (seedlingRef, taskData) => {
     return { seedlingName: seedlingRef || 'Unknown Seedling' };
   }
 };
+
 // Move this BEFORE fetchNotifications() function
 const fetchAssignedSeedlingsNotifications = async () => {
   try {
@@ -263,6 +227,7 @@ const fetchAssignedSeedlingsNotifications = async () => {
     return [];
   }
 };
+
 // =============================================================================
 // DATA FETCHING FUNCTIONS
 // =============================================================================
@@ -300,7 +265,6 @@ const fetchNotifications = async () => {
     }
     
     console.log(`✅ Found ${notifications.length} raw notifications`);
-    // Add this function
     
     // Transform notifications to match your data structure
     const transformedNotifications = await Promise.all(
@@ -331,7 +295,7 @@ const fetchNotifications = async () => {
           created_at: notification.created_at,
           timestamp: notification.created_at,
           isRealNotification: true,
-          // Formatted dates
+          // Formatted dates - DATE ONLY, NO TIME
           formatted_preferred_date: formatDisplayDate(notification.preferred_date),
           formatted_request_date: formatDisplayDate(notification.created_at),
           // Additional metadata for display
@@ -506,7 +470,8 @@ const fetchPlantingRecords = async (plantingRequests) => {
             recommendedSeedlings: taskData.recommendedSeedlings,
             status: record.status || 'completed',
             notes: record.notes || record.record_notes || 'No notes',
-            formatted_planting_date: formatDisplayDateTime(recordDate),
+            // DATE ONLY - NO TIME
+            formatted_planting_date: formatDisplayDate(recordDate),
             raw_record_date: recordDate,
             // For notification compatibility
             type: 'planting_record',
@@ -530,7 +495,8 @@ const fetchPlantingRecords = async (plantingRequests) => {
             treeSeedlingName: record.seedlingRef || 'Unknown Tree',
             status: record.status || 'completed',
             notes: record.notes || 'No notes',
-            formatted_planting_date: formatDisplayDateTime(recordDate),
+            // DATE ONLY - NO TIME
+            formatted_planting_date: formatDisplayDate(recordDate),
             // For notification compatibility
             type: 'planting_record',
             message: `Unknown user has planted ${record.seedlingRef || 'a tree'}`,
@@ -772,8 +738,9 @@ const NotificationPanel = () => {
     ).join(' ');
   };
 
+  // UPDATED: Only show date, not time
   const formatDateTime = (date) => {
-    return formatDisplayDateTime(date);
+    return formatDisplayDate(date); // Only date, no time
   };
 
   // Combine all notifications
@@ -975,6 +942,7 @@ const NotificationPanel = () => {
           </Typography>
           
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+            {/* UPDATED: Only show date, not time */}
             <Typography variant="caption" color="text.secondary">
               {formatDateTime(item.displayTimestamp)}
             </Typography>
@@ -1074,8 +1042,9 @@ const NotificationPanel = () => {
                     <Typography variant="caption" color="text.secondary" display="block">
                       Submission Date
                     </Typography>
+                    {/* UPDATED: Only show date, not time */}
                     <Typography variant="body1" fontWeight="600">
-                      {formatDateTime(item.displayTimestamp || item.timestamp || item.created_at)}
+                      {formatDisplayDate(item.displayTimestamp || item.timestamp || item.created_at)}
                     </Typography>
                   </Box>
                   {item.preferred_date && (
@@ -1239,6 +1208,7 @@ const NotificationPanel = () => {
                     <Typography variant="caption" color="text.secondary" display="block">
                       Planting Date
                     </Typography>
+                    {/* UPDATED: Only show date, not time */}
                     <Typography variant="body1" fontWeight="600">
                       {item.formatted_planting_date}
                     </Typography>
@@ -1337,8 +1307,9 @@ const NotificationPanel = () => {
             <Typography variant="caption" color="text.secondary" display="block">
               Created
             </Typography>
+            {/* UPDATED: Only show date, not time */}
             <Typography variant="body1" fontWeight="600">
-              {formatDateTime(item.displayTimestamp)}
+              {formatDisplayDate(item.displayTimestamp)}
             </Typography>
           </Box>
           {item.preferred_date && (
