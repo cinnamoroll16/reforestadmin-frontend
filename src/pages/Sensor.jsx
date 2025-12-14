@@ -378,9 +378,6 @@ const DatasetUploadSection = ({
               ref={fileInputRef}
             />
           </Button>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
-            Upload Tree_Seedling_Dataset.xlsx to enable ML recommendations
-          </Typography>
         </Box>
       ) : (
         <Box>
