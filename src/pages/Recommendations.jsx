@@ -1030,17 +1030,6 @@ function Recommendations() {
                                     pH: {seedling.prefpH}
                                   </Typography>
 
-                                  <Box sx={{ mt: 1 }}>
-                                    <LinearProgress
-                                      variant="determinate"
-                                      value={seedling.confidenceScore * 100}
-                                      color={getConfidenceColor(seedling.confidenceScore * 100)}
-                                      sx={{ height: 6, borderRadius: 3 }}
-                                    />
-                                    <Typography variant="caption" sx={{ mt: 0.5, display: 'block', textAlign: 'center' }}>
-                                      {Math.round(seedling.confidenceScore * 100)}% confidence
-                                    </Typography>
-                                  </Box>
                                 </CardContent>
                               </Card>
                             ))}
