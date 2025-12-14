@@ -403,9 +403,6 @@ const DatasetUploadSection = ({
                   ref={fileInputRef}
                 />
               </Button>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
-                Upload Tree_Seedling_Dataset.xlsx to enable ML recommendations
-              </Typography>
             </>
           ) : (
             <Box>
@@ -438,18 +435,7 @@ const DatasetUploadSection = ({
             </Box>
           )}
           
-          <Alert 
-            severity="info" 
-            icon={<InfoIcon />}
-            sx={{ 
-              mt: 2,
-              bgcolor: '#e3f2fd',
-              border: '1px solid #90caf9',
-              '& .MuiAlert-icon': { color: '#1976d2' }
-            }}
-          >
-            Backend connected. Please upload tree dataset to enable recommendations.
-          </Alert>
+    
         </Box>
       )}
     </Paper>
