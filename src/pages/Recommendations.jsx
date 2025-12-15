@@ -1,4 +1,4 @@
-// src/pages/Recommendations.js - OPTIMIZED VERSION (UI UNCHANGED)
+// src/pages/Recommendations.js - FULLY OPTIMIZED VERSION
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -52,13 +52,11 @@ import { useAuth } from '../context/AuthContext.js';
 
 const drawerWidth = 240;
 
-// Cache manager to prevent duplicate API calls
+// Enhanced cache manager
 const cacheManager = {
   cache: new Map(),
-  locationCache: new Map(),
-  seedlingCache: new Map(),
   
-  set(key, data, expiry = 30000) {
+  set(key, data, expiry = 300000) { // 5 minutes default
     this.cache.set(key, {
       data,
       expiry: Date.now() + expiry,
@@ -78,30 +76,8 @@ const cacheManager = {
     return cached.data;
   },
   
-  setLocation(id, data) {
-    this.locationCache.set(id, {
-      data,
-      timestamp: Date.now()
-    });
-  },
-  
-  getLocation(id) {
-    const cached = this.locationCache.get(id);
-    if (!cached) return null;
-    
-    // Location cache lasts longer (5 minutes)
-    if (Date.now() - cached.timestamp > 300000) {
-      this.locationCache.delete(id);
-      return null;
-    }
-    
-    return cached.data;
-  },
-  
   clear() {
     this.cache.clear();
-    this.locationCache.clear();
-    this.seedlingCache.clear();
   }
 };
 
@@ -127,19 +103,7 @@ function Recommendations() {
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const handleDrawerToggle = () => setMobileOpen(!mobileOpen);
 
-  // Refs to track loading state and prevent duplicates
   const isLoadingRef = useRef(false);
-  const pendingRequestsRef = useRef(new Map());
-
-  const getDefaultSensorData = () => {
-    return {
-      sensorId: 'N/A',
-      soilMoisture: 0,
-      temperature: 0,
-      pH: 0,
-      timestamp: new Date().toISOString()
-    };
-  };
 
   const extractSensorId = (sensorDataRef) => {
     if (!sensorDataRef || sensorDataRef === 'N/A') {
@@ -170,11 +134,10 @@ function Recommendations() {
   };
 
   // ============================================================================
-  // OPTIMIZED FETCH FUNCTIONS
+  // OPTIMIZED FETCH FUNCTIONS WITH BATCHING
   // ============================================================================
 
   const fetchSensorData = useCallback((sensorDataRef, sensorConditions) => {
-    // No API call needed - use sensorConditions directly
     const sensorId = extractSensorId(sensorDataRef);
     
     return {
@@ -187,137 +150,144 @@ function Recommendations() {
     };
   }, []);
 
-  // OPTIMIZED: Fetch location data with caching and request deduplication
-  const fetchLocationData = useCallback(async (locationRef) => {
-    if (!locationRef || locationRef === 'N/A') {
-      return {
-        locationId: 'unknown',
-        location_name: 'Unknown Location',
-        location_latitude: 'N/A',
-        location_longitude: 'N/A'
-      };
-    }
+  // Batch fetch all locations at once
+  const fetchAllLocations = useCallback(async (locationRefs) => {
+    const uniqueLocationIds = new Set();
+    const locationMap = new Map();
     
-    const parts = locationRef.split('/').filter(Boolean);
-    let locationId;
-    
-    if (parts.length >= 2) {
-      locationId = parts[1];
-    } else if (parts.length === 1) {
-      locationId = parts[0];
-    } else {
-      return {
-        locationId: 'unknown',
-        location_name: 'Unknown Location',
-        location_latitude: 'N/A',
-        location_longitude: 'N/A'
-      };
-    }
-    
-    // Check cache first
-    const cachedLocation = cacheManager.getLocation(locationId);
-    if (cachedLocation) {
-      return cachedLocation;
-    }
-    
-    // Check if request is already in progress
-    if (pendingRequestsRef.current.has(locationId)) {
-      return pendingRequestsRef.current.get(locationId);
-    }
-    
-    // Create fetch promise
-    const fetchPromise = (async () => {
-      try {
-        const locationData = await apiService.getLocationById(locationId);
-        
-        const result = {
-          locationId: locationId,
-          location_name: locationData?.location_name || locationData?.name || `Location ${locationId}`,
-          location_latitude: locationData?.location_latitude || locationData?.latitude || 'N/A',
-          location_longitude: locationData?.location_longitude || locationData?.longitude || 'N/A',
-          ...locationData
-        };
-        
-        // Cache the result
-        cacheManager.setLocation(locationId, result);
-        pendingRequestsRef.current.delete(locationId);
-        
-        return result;
-      } catch (apiError) {
-        pendingRequestsRef.current.delete(locationId);
-        return {
-          locationId: locationId,
-          location_name: `Location ${locationId}`,
-          location_latitude: 'N/A',
-          location_longitude: 'N/A'
-        };
+    // Extract unique location IDs
+    locationRefs.forEach(ref => {
+      if (!ref || ref === 'N/A') return;
+      
+      const parts = ref.split('/').filter(Boolean);
+      let locationId;
+      
+      if (parts.length >= 2) {
+        locationId = parts[1];
+      } else if (parts.length === 1) {
+        locationId = parts[0];
       }
-    })();
-    
-    // Store promise to prevent duplicate requests
-    pendingRequestsRef.current.set(locationId, fetchPromise);
-    
-    return fetchPromise;
+      
+      if (locationId) {
+        uniqueLocationIds.add(locationId);
+      }
+    });
+
+    // Check cache first
+    const uncachedIds = [];
+    uniqueLocationIds.forEach(id => {
+      const cached = cacheManager.get(`location-${id}`);
+      if (cached) {
+        locationMap.set(id, cached);
+      } else {
+        uncachedIds.push(id);
+      }
+    });
+
+    // Fetch uncached locations in parallel
+    if (uncachedIds.length > 0) {
+      const locationPromises = uncachedIds.map(async (locationId) => {
+        try {
+          const locationData = await apiService.getLocationById(locationId);
+          
+          const result = {
+            locationId: locationId,
+            location_name: locationData?.location_name || locationData?.name || `Location ${locationId}`,
+            location_latitude: locationData?.location_latitude || locationData?.latitude || 'N/A',
+            location_longitude: locationData?.location_longitude || locationData?.longitude || 'N/A',
+            ...locationData
+          };
+          
+          cacheManager.set(`location-${locationId}`, result);
+          return { id: locationId, data: result };
+        } catch (error) {
+          const fallback = {
+            locationId: locationId,
+            location_name: `Location ${locationId}`,
+            location_latitude: 'N/A',
+            location_longitude: 'N/A'
+          };
+          return { id: locationId, data: fallback };
+        }
+      });
+
+      const results = await Promise.all(locationPromises);
+      results.forEach(({ id, data }) => {
+        locationMap.set(id, data);
+      });
+    }
+
+    return locationMap;
   }, []);
 
-  // OPTIMIZED: Fetch seedlings with caching
-  const fetchSeedlingsForRecommendation = useCallback(async (seedlingRefs) => {
-    if (!Array.isArray(seedlingRefs) || seedlingRefs.length === 0) {
-      return [];
-    }
+  // Batch fetch all seedlings at once
+  const fetchAllSeedlings = useCallback(async (allSeedlingRefs) => {
+    const uniqueSeedlingIds = new Set();
+    const seedlingMap = new Map();
     
-    const cacheKey = `seedlings-${seedlingRefs.join(',')}`;
-    const cached = cacheManager.get(cacheKey);
-    if (cached) {
-      return cached;
-    }
-    
-    try {
-      const seedlings = await Promise.all(
-        seedlingRefs.map(async (refPath) => {
-          const seedlingId = refPath.split('/').pop();
-          const seedlingCacheKey = `seedling-${seedlingId}`;
-          const cachedSeedling = cacheManager.get(seedlingCacheKey);
-          
-          if (cachedSeedling) {
-            return cachedSeedling;
-          }
-          
-          try {
-            const seedlingData = await apiService.getTreeSeedlingById(seedlingId);
-            
-            if (seedlingData) {
-              const result = {
-                seedling_id: seedlingId,
-                commonName: seedlingData.seedling_commonName || seedlingData.commonName || 'Unknown',
-                scientificName: seedlingData.seedling_scientificName || seedlingData.scientificName || 'Unknown',
-                prefMoisture: parseFloat(seedlingData.seedling_prefMoisture || seedlingData.prefMoisture) || 0,
-                prefTemp: parseFloat(seedlingData.seedling_prefTemp || seedlingData.prefTemp) || 0,
-                prefpH: parseFloat(seedlingData.seedling_prefpH || seedlingData.prefpH) || 0,
-                isNative: seedlingData.seedling_isNative === true || seedlingData.isNative === true,
-                confidenceScore: 0.8 + Math.random() * 0.2
-              };
-              
-              cacheManager.set(seedlingCacheKey, result);
-              return result;
-            }
-            return null;
-          } catch (error) {
-            return null;
-          }
-        })
-      );
+    // Extract unique seedling IDs
+    allSeedlingRefs.forEach(refs => {
+      if (!Array.isArray(refs)) return;
+      
+      refs.forEach(refPath => {
+        const seedlingId = refPath.split('/').pop();
+        if (seedlingId) {
+          uniqueSeedlingIds.add(seedlingId);
+        }
+      });
+    });
 
-      const filteredSeedlings = seedlings.filter(Boolean);
-      cacheManager.set(cacheKey, filteredSeedlings);
-      return filteredSeedlings;
-    } catch (error) {
-      return [];
+    // Check cache first
+    const uncachedIds = [];
+    uniqueSeedlingIds.forEach(id => {
+      const cached = cacheManager.get(`seedling-${id}`);
+      if (cached) {
+        seedlingMap.set(id, cached);
+      } else {
+        uncachedIds.push(id);
+      }
+    });
+
+    // Fetch uncached seedlings in parallel
+    if (uncachedIds.length > 0) {
+      const seedlingPromises = uncachedIds.map(async (seedlingId) => {
+        try {
+          const seedlingData = await apiService.getTreeSeedlingById(seedlingId);
+          
+          if (seedlingData) {
+            const result = {
+              seedling_id: seedlingId,
+              commonName: seedlingData.seedling_commonName || seedlingData.commonName || 'Unknown',
+              scientificName: seedlingData.seedling_scientificName || seedlingData.scientificName || 'Unknown',
+              prefMoisture: parseFloat(seedlingData.seedling_prefMoisture || seedlingData.prefMoisture) || 0,
+              prefTemp: parseFloat(seedlingData.seedling_prefTemp || seedlingData.prefTemp) || 0,
+              prefpH: parseFloat(seedlingData.seedling_prefpH || seedlingData.prefpH) || 0,
+              isNative: seedlingData.seedling_isNative === true || seedlingData.isNative === true,
+              confidenceScore: 0.8 + Math.random() * 0.2
+            };
+            
+            cacheManager.set(`seedling-${seedlingId}`, result);
+            return { id: seedlingId, data: result };
+          }
+          return null;
+        } catch (error) {
+          return null;
+        }
+      });
+
+      const results = await Promise.all(seedlingPromises);
+      results.forEach(result => {
+        if (result) {
+          seedlingMap.set(result.id, result.data);
+        }
+      });
     }
+
+    return seedlingMap;
   }, []);
 
   // ============================================================================
-  // OPTIMIZED LOADING FUNCTION
+  // FULLY OPTIMIZED LOADING FUNCTION
   // ============================================================================
 
   const loadRecommendations = useCallback(async () => {
@@ -330,7 +300,7 @@ function Recommendations() {
     setError(null);
     
     try {
-      // Get recommendations - check cache first
+      // Step 1: Get recommendations (check cache first)
       const cacheKey = 'recommendations-list';
       const cachedRecos = cacheManager.get(cacheKey);
       
@@ -352,103 +322,114 @@ function Recommendations() {
         return;
       }
 
-      // Process recommendations in batches to prevent overload
-      const batchSize = 2;
-      const processedRecommendations = [];
-      
-      for (let i = 0; i < recommendationsData.length; i += batchSize) {
-        const batch = recommendationsData.slice(i, i + batchSize);
-        
-        const processedBatch = await Promise.all(
-          batch.map(async (reco) => {
-            if (reco.deleted === true) {
-              return null;
-            }
+      // Filter out deleted recommendations
+      const validRecommendations = recommendationsData.filter(reco => !reco.deleted);
 
-            if (!reco.id && !reco.reco_id) {
-              return null;
-            }
-
-            try {
-              const sensorData = fetchSensorData(reco.sensorDataRef, reco.sensorConditions);
-              
-              const locationData = await fetchLocationData(reco.locationRef);
-              
-              let seedlings = [];
-              if (Array.isArray(reco.seedlingOptions) && reco.seedlingOptions.length > 0) {
-                seedlings = await fetchSeedlingsForRecommendation(reco.seedlingOptions);
-              }
-
-              let confidenceScore;
-              if (typeof reco.reco_confidenceScore === 'string') {
-                confidenceScore = parseFloat(reco.reco_confidenceScore);
-              } else if (typeof reco.reco_confidenceScore === 'number') {
-                confidenceScore = reco.reco_confidenceScore;
-              } else {
-                confidenceScore = 0.85;
-              }
-
-              const confidencePercentage = confidenceScore > 1
-                ? Math.min(Math.round(confidenceScore), 100)
-                : Math.round(confidenceScore * 100);
-
-              const status = generateStatus(confidenceScore);
-
-              let generatedDate;
-              try {
-                if (reco.reco_generatedAt) {
-                  generatedDate = new Date(reco.reco_generatedAt).toISOString();
-                } else if (reco.createdAt) {
-                  generatedDate = reco.createdAt;
-                } else {
-                  generatedDate = new Date().toISOString();
-                }
-              } catch (dateError) {
-                generatedDate = new Date().toISOString();
-              }
-
-              return {
-                id: reco.id || reco.reco_id,
-                reco_id: reco.id || reco.reco_id,
-                sensorDataRef: reco.sensorDataRef || 'N/A',
-                locationRef: reco.locationRef || 'N/A',
-                sensorData: sensorData,
-                locationData: locationData,
-                reco_confidenceScore: confidencePercentage,
-                reco_generatedAt: generatedDate,
-                status,
-                recommendedSeedlings: seedlings,
-                seedlingCount: seedlings.length,
-                deleted: reco.deleted || false,
-                season: reco.season || 'unknown',
-                sensorConditions: reco.sensorConditions || {}
-              };
-            } catch (recoError) {
-              return null;
-            }
-          })
-        );
-        
-        processedRecommendations.push(...processedBatch.filter(reco => reco !== null));
-        
-        // Update state with processed batch for progressive loading
-        if (processedRecommendations.length > 0) {
-          setRecommendations([...processedRecommendations]);
-        }
+      if (validRecommendations.length === 0) {
+        setRecommendations([]);
+        return;
       }
-      
-      // Cache the final processed list
-      cacheManager.set('processed-recommendations', processedRecommendations);
+
+      // Step 2: Collect all unique location and seedling references
+      const locationRefs = validRecommendations.map(reco => reco.locationRef);
+      const allSeedlingRefs = validRecommendations.map(reco => reco.seedlingOptions || []);
+
+      // Step 3: Batch fetch all locations and seedlings in parallel
+      const [locationMap, seedlingMap] = await Promise.all([
+        fetchAllLocations(locationRefs),
+        fetchAllSeedlings(allSeedlingRefs)
+      ]);
+
+      // Step 4: Process all recommendations (now all data is available)
+      const processedRecommendations = validRecommendations.map(reco => {
+        try {
+          // Get sensor data (no API call needed)
+          const sensorData = fetchSensorData(reco.sensorDataRef, reco.sensorConditions);
+          
+          // Get location data from map
+          const locationParts = (reco.locationRef || '').split('/').filter(Boolean);
+          let locationId = locationParts.length >= 2 ? locationParts[1] : (locationParts.length === 1 ? locationParts[0] : 'unknown');
+          const locationData = locationMap.get(locationId) || {
+            locationId: 'unknown',
+            location_name: 'Unknown Location',
+            location_latitude: 'N/A',
+            location_longitude: 'N/A'
+          };
+          
+          // Get seedlings from map
+          let seedlings = [];
+          if (Array.isArray(reco.seedlingOptions) && reco.seedlingOptions.length > 0) {
+            seedlings = reco.seedlingOptions
+              .map(refPath => {
+                const seedlingId = refPath.split('/').pop();
+                return seedlingMap.get(seedlingId);
+              })
+              .filter(Boolean);
+          }
+
+          // Process confidence score
+          let confidenceScore;
+          if (typeof reco.reco_confidenceScore === 'string') {
+            confidenceScore = parseFloat(reco.reco_confidenceScore);
+          } else if (typeof reco.reco_confidenceScore === 'number') {
+            confidenceScore = reco.reco_confidenceScore;
+          } else {
+            confidenceScore = 0.85;
+          }
+
+          const confidencePercentage = confidenceScore > 1
+            ? Math.min(Math.round(confidenceScore), 100)
+            : Math.round(confidenceScore * 100);
+
+          const status = generateStatus(confidenceScore);
+
+          // Process date
+          let generatedDate;
+          try {
+            if (reco.reco_generatedAt) {
+              generatedDate = new Date(reco.reco_generatedAt).toISOString();
+            } else if (reco.createdAt) {
+              generatedDate = reco.createdAt;
+            } else {
+              generatedDate = new Date().toISOString();
+            }
+          } catch (dateError) {
+            generatedDate = new Date().toISOString();
+          }
+
+          return {
+            id: reco.id || reco.reco_id,
+            reco_id: reco.id || reco.reco_id,
+            sensorDataRef: reco.sensorDataRef || 'N/A',
+            locationRef: reco.locationRef || 'N/A',
+            sensorData: sensorData,
+            locationData: locationData,
+            reco_confidenceScore: confidencePercentage,
+            reco_generatedAt: generatedDate,
+            status,
+            recommendedSeedlings: seedlings,
+            seedlingCount: seedlings.length,
+            deleted: false,
+            season: reco.season || 'unknown',
+            sensorConditions: reco.sensorConditions || {}
+          };
+        } catch (recoError) {
+          console.error('Error processing recommendation:', recoError);
+          return null;
+        }
+      }).filter(reco => reco !== null);
+
+      setRecommendations(processedRecommendations);
       
     } catch (error) {
+      console.error('Error loading recommendations:', error);
       setError("Failed to load recommendations: " + error.message);
       setRecommendations([]);
     } finally {
       setLoading(false);
       isLoadingRef.current = false;
-      pendingRequestsRef.current.clear();
     }
-  }, [fetchSensorData, fetchLocationData, fetchSeedlingsForRecommendation]);
+  }, [fetchSensorData, fetchAllLocations, fetchAllSeedlings]);
 
   // ============================================================================
   // OTHER HANDLERS (UNCHANGED)
@@ -485,7 +466,7 @@ function Recommendations() {
         }
       };
 
-      const result = await apiService.createPlantingTask(taskData);
+      await apiService.createPlantingTask(taskData);
 
       setSuccess("Recommendation implemented successfully!");
       
@@ -533,7 +514,6 @@ function Recommendations() {
       setDeleteDialogOpen(false);
       setRecoToDelete(null);
       
-      // Clear cache and reload
       cacheManager.clear();
       loadRecommendations();
     } catch (error) {
@@ -555,22 +535,21 @@ function Recommendations() {
   useEffect(() => {
     loadRecommendations();
 
-    // Cleaner polling - only poll if tab is visible
+    // Optimized polling - only when tab is visible, longer interval
     const pollInterval = setInterval(() => {
       if (!isLoadingRef.current && document.visibilityState === 'visible') {
         loadRecommendations();
       }
-    }, 60000); // Increased to 60 seconds
+    }, 120000); // 2 minutes instead of 1 minute
 
     return () => {
       clearInterval(pollInterval);
       isLoadingRef.current = false;
-      pendingRequestsRef.current.clear();
     };
   }, [loadRecommendations]);
 
   // ============================================================================
-  // UI HELPERS (UNCHANGED - YOUR ORIGINAL CODE)
+  // UI HELPERS
   // ============================================================================
 
   const filteredRecommendations = recommendations.filter(reco => {
@@ -615,30 +594,24 @@ function Recommendations() {
   const statusTypes = [...new Set(recommendations.map(reco => reco.status))];
 
   // ============================================================================
-  // RENDER (YOUR EXACT ORIGINAL UI CODE - NO CHANGES)
+  // RENDER
   // ============================================================================
 
   return (
     <Box sx={{ display: 'flex', bgcolor: '#f8fafc', minHeight: '100vh' }}>
-      {/* App Bar */}
       <ReForestAppBar handleDrawerToggle={handleDrawerToggle} user={user} onLogout={logout} />
-
-      {/* Side Navigation */}
       <Navigation mobileOpen={mobileOpen} handleDrawerToggle={handleDrawerToggle} isMobile={isMobile} />
 
-      {/* Main Content */}
       <Box component="main" sx={{ flexGrow: 1, p: 3, width: { md: `calc(100% - ${drawerWidth}px)` } }}>
         <Toolbar />
         
         <Box sx={{ width: '100%' }}>
-          {/* Error Alert */}
           {error && (
             <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }} onClose={() => setError(null)}>
               {error}
             </Alert>
           )}
 
-          {/* Header */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
             <Box>
               <Typography variant="h4" sx={{ color: '#2e7d32', fontWeight: 600 }}>
@@ -658,10 +631,8 @@ function Recommendations() {
             </Button>
           </Box>
 
-          {/* Loading State */}
           {loading && <LinearProgress sx={{ mb: 2 }} />}
 
-          {/* Filters */}
           <Paper sx={{ mb: 2, p: 2, borderRadius: 2 }}>
             <Grid container spacing={2} alignItems="center">
               <Grid item xs={12} md={6}>
@@ -689,7 +660,6 @@ function Recommendations() {
             </Grid>
           </Paper>
 
-          {/* Loading or Empty State */}
           {loading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 200 }}>
               <CircularProgress size={40} sx={{ color: '#2e7d32', mr: 2 }} />
@@ -705,7 +675,6 @@ function Recommendations() {
             </Box>
           ) : (
             <>
-              {/* Recommendations Table */}
               <Paper sx={{ width: '100%', mb: 2, borderRadius: 2, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
                 <TableContainer>
                   <Table>
@@ -943,7 +912,6 @@ function Recommendations() {
                                   <Typography variant="body2">
                                     pH Level: {selectedReco.sensorData.pH}
                                   </Typography>
-                                 
                                 </>
                               ) : (
                                 <Typography variant="body2" color="text.secondary">
@@ -1024,7 +992,6 @@ function Recommendations() {
                                   <Typography variant="caption" display="block">
                                     pH: {seedling.prefpH}
                                   </Typography>
-
                                 </CardContent>
                               </Card>
                             ))}
