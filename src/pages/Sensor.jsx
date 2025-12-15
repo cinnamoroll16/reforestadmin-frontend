@@ -1,4 +1,4 @@
-// src/pages/Sensor.jsx - UPDATED WITH ONE-TIME DATASET SYSTEM
+// src/pages/Sensor.jsx - UPDATED WITH FIXED VALIDATION
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { apiService } from '../services/api';
 import {
@@ -64,7 +64,7 @@ const BACKEND_CONFIG = {
     ML_DATASET: '/api/ml/dataset',
     ML_DATASET_STATUS: '/api/ml/dataset-status',
     ML_RELOAD_DATASET: '/api/ml/reload-dataset',
-    ML_UPLOAD_DATASET: '/api/ml/upload-dataset', // NEW ENDPOINT
+    ML_UPLOAD_DATASET: '/api/ml/upload-dataset',
     RECOMMENDATIONS: '/api/recommendations',
     SENSORS: '/api/sensors',
     SENSOR_DATA: (sensorId) => `/api/sensors/${sensorId}/data`,
@@ -87,36 +87,43 @@ const SensorDataSchema = {
 // HELPER FUNCTIONS
 // ============================================================================
 
-// Enhanced validation with warnings
+// Enhanced validation with warnings - FIXED VERSION
 const validateSensorData = (sensorData) => {
   const { pH, soilMoisture, temperature } = sensorData;
   const errors = [];
   const warnings = [];
   
-  // Handle "N/A" values
-  if (pH === "N/A" || soilMoisture === "N/A" || temperature === "N/A") {
-    errors.push('Sensor data contains N/A values');
-    return { isValid: false, errors, warnings, hasWarnings: false };
-  }
+  // Check for "N/A" values
+  const hasNAValues = pH === "N/A" || soilMoisture === "N/A" || temperature === "N/A";
   
   Object.entries(SensorDataSchema).forEach(([field, rules]) => {
     const value = sensorData[field];
     
-    // Check if required and valid
-    if (rules.required && (value === null || value === undefined)) {
-      errors.push(`${field} is missing or unavailable`);
+    // Check if required and not N/A
+    if (rules.required && (value === null || value === undefined || value === "N/A")) {
+      errors.push(`${field} is missing or unavailable (N/A)`);
       return;
     }
     
+    // Skip further validation for N/A values
+    if (value === "N/A") return;
+    
     const numValue = parseFloat(value);
     
-    // Check range validity
+    // Check if it's a valid number
     if (isNaN(numValue)) {
       errors.push(`${field} must be a number`);
-    } else if (numValue < rules.min || numValue > rules.max) {
+      return;
+    }
+    
+    // Check absolute range validity - these should be errors
+    if (numValue < rules.min || numValue > rules.max) {
       errors.push(`${field} (${numValue}) is outside valid range (${rules.min}-${rules.max})`);
-    } else if (rules.optimal) {
-      // Check optimal range for warnings
+      return;
+    }
+    
+    // Check optimal range for warnings only - not errors
+    if (rules.optimal) {
       const [optMin, optMax] = rules.optimal;
       if (numValue < optMin || numValue > optMax) {
         warnings.push(`${field} (${numValue}) is outside optimal range (${optMin}-${optMax})`);
@@ -152,13 +159,35 @@ const backendMLService = {
         })
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+      const responseText = await response.text();
+      console.log('📄 Raw response:', responseText);
+
+      let result;
+      try {
+        result = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('Failed to parse JSON:', parseError);
+        throw new Error(`Invalid JSON response: ${responseText.substring(0, 100)}...`);
       }
 
-      const result = await response.json();
+      if (!response.ok) {
+        console.error('❌ Backend error response:', result);
+        throw new Error(result.message || result.error || `HTTP error! status: ${response.status}`);
+      }
+
       console.log('✅ Backend ML response:', result);
+      
+      // Ensure the response has the expected structure
+      if (!result.success && !result.recommendations) {
+        console.warn('⚠️ Unexpected response structure:', result);
+        // Try to normalize the response
+        if (Array.isArray(result)) {
+          result = { success: true, recommendations: result };
+        } else if (result.predictions) {
+          result = { success: true, recommendations: result.predictions };
+        }
+      }
+      
       return result;
       
     } catch (error) {
@@ -205,7 +234,7 @@ const backendMLService = {
     }
   },
 
-  // Upload dataset (NEW FUNCTION)
+  // Upload dataset
   async uploadDataset(file) {
     try {
       const formData = new FormData();
@@ -441,6 +470,7 @@ const DatasetUploadSection = ({
     </Paper>
   );
 };
+
 // ============================================================================
 // SENSOR HISTORY GRID COMPONENT
 // ============================================================================
@@ -574,7 +604,7 @@ function Sensors() {
   const [processingMLSensor, setProcessingMLSensor] = useState(null);
   const [mlProgress, setMlProgress] = useState({ step: '', percent: 0 });
   const [reloadingDataset, setReloadingDataset] = useState(false);
-  const [uploadingDataset, setUploadingDataset] = useState(false); // NEW STATE
+  const [uploadingDataset, setUploadingDataset] = useState(false);
   
   // Modal State
   const [selectedSensor, setSelectedSensor] = useState(null);
@@ -608,7 +638,7 @@ function Sensors() {
   };
 
   // ============================================================================
-  // BACKEND & ML SERVICE HEALTH CHECK - UPDATED
+  // BACKEND & ML SERVICE HEALTH CHECK
   // ============================================================================
   useEffect(() => {
     const checkServices = async () => {
@@ -659,7 +689,7 @@ function Sensors() {
   }, [showNotification]);
 
   // ============================================================================
-  // DATASET UPLOAD HANDLER - NEW FUNCTION
+  // DATASET UPLOAD HANDLER
   // ============================================================================
   const handleDatasetUpload = async (file) => {
     setUploadingDataset(true);
@@ -688,7 +718,7 @@ function Sensors() {
   };
 
   // ============================================================================
-  // RELOAD DATASET HANDLER - UPDATED
+  // RELOAD DATASET HANDLER
   // ============================================================================
   const handleReloadDataset = async () => {
     setReloadingDataset(true);
@@ -910,7 +940,7 @@ function Sensors() {
   }, [fetchSensorsFromBackend, fetchLocations, showNotification]);
 
   // ============================================================================
-  // REFRESH HANDLER - UPDATED
+  // REFRESH HANDLER
   // ============================================================================
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -997,7 +1027,7 @@ function Sensors() {
   };
 
   // ============================================================================
-  // BACKEND ML GENERATION
+  // BACKEND ML GENERATION - FIXED VALIDATION
   // ============================================================================
   const handleGenerateML = async (sensor) => {
     const sensorId = sensor.id;
@@ -1016,9 +1046,10 @@ function Sensors() {
         throw new Error(`Invalid sensor data: ${validation.errors.join(', ')}`);
       }
       
+      // Show warnings but don't prevent ML generation
       if (validation.hasWarnings) {
         showNotification(
-          `Data warnings: ${validation.warnings.join('; ')}`,
+          `Data warnings (ML will still run): ${validation.warnings.join('; ')}`,
           'warning'
         );
       }
@@ -1040,17 +1071,42 @@ function Sensors() {
         sensor.coordinates
       );
       
+      // DEBUG: Log the full response
+      console.log('🔍 ML Response:', result);
+      
       if (!result.success) {
-        throw new Error(result.error || 'Backend ML processing failed');
+        throw new Error(result.error || result.message || 'Backend ML processing failed');
       }
+      
+      // Check if recommendations exist and have expected structure
+      if (!result.recommendations || !Array.isArray(result.recommendations) || result.recommendations.length === 0) {
+        throw new Error('No recommendations returned from ML service');
+      }
+      
+      const topTree = result.recommendations[0];
+      
+      // Check if topTree has expected properties
+      if (!topTree) {
+        throw new Error('First recommendation is empty');
+      }
+      
+      const treeName = topTree.commonName || topTree.name || topTree.species || topTree.tree_name || 'Unknown tree';
+      const confidenceScore = topTree.confidenceScore || topTree.score || topTree.probability || topTree.confidence || 0;
       
       setMlProgress({ step: 'Complete!', percent: 100 });
 
-      const topTree = result.recommendations[0];
       showNotification(
-        `✅ ML Complete! Top recommendation: ${topTree.commonName} (${(topTree.confidenceScore * 100).toFixed(1)}% confidence)`,
+        `✅ ML Complete! Top recommendation: ${treeName} (${(confidenceScore * 100).toFixed(1)}% confidence)`,
         'success'
       );
+
+      // Store the result in localStorage or state to pass to recommendations page
+      localStorage.setItem('lastMLResult', JSON.stringify({
+        sensorId,
+        sensorData,
+        recommendations: result.recommendations,
+        timestamp: new Date().toISOString()
+      }));
 
       setTimeout(() => {
         navigate('/recommendations');
@@ -1072,6 +1128,11 @@ function Sensors() {
       }
       
       showNotification(errorMessage, 'error');
+      
+      // DEBUG: Log additional info if available
+      if (error.response) {
+        console.error('Response error details:', error.response);
+      }
       
     } finally {
       setProcessingMLSensor(null);
@@ -1265,6 +1326,7 @@ function Sensors() {
                       temperature: sensor.temperature
                     });
 
+                    // FIX: Allow ML generation even with warnings (sub-optimal values)
                     const canGenerateThisSensor = validation.isValid && canGenerateML;
 
                     return (
