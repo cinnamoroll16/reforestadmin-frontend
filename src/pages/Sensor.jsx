@@ -284,23 +284,31 @@ const backendMLService = {
   }
 };
 
-// Format timestamp
+// Format timestamp - Display in UTC to match database timezone
 const formatTimestamp = (timestamp) => {
   if (!timestamp) return "N/A";
   
   try {
     const date = new Date(timestamp);
+    // Validate that the date is reasonable
+    if (isNaN(date.getTime())) {
+      return "Invalid date";
+    }
+    // Display in UTC timezone to match the database "Z" timezone
     return date.toLocaleString('en-US', {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
+      timeZone: 'UTC',
+      timeZoneName: 'short'
     });
   } catch (error) {
     return "Invalid date";
   }
 };
+
 
 // Format value with units
 const formatValue = (value, unit = '') => {
@@ -1221,10 +1229,6 @@ function Sensors() {
           <Box>
             <Typography variant="h4" sx={{ color: '#2e7d32', fontWeight: 600, mb: 1 }}>
               ReForest Sensors
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {sensors.length} sensor{sensors.length !== 1 ? 's' : ''} 
-              {Object.keys(locations).length > 0 && ` • ${Object.keys(locations).length} locations`}
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
