@@ -357,8 +357,28 @@ class ApiService {
   // ========== NOTIFICATIONS ==========
   async getNotifications() {
     try {
-      const response = await this.request('/api/notifications');
-      return Array.isArray(response) ? response : [];
+      // Request with cache disabled
+      const response = await this.request('/api/notifications', { skipCache: true });
+      
+      console.log('📦 Raw Notification Response:', response); // Debug log
+
+      // CASE 1: Response is an object with a 'notifications' array (Our new backend format)
+      if (response && Array.isArray(response.notifications)) {
+        return response.notifications;
+      }
+      
+      // CASE 2: Response is just a raw array (Old backend format or fallback)
+      if (Array.isArray(response)) {
+        return response;
+      }
+      
+      // CASE 3: Response is object with 'data' (Some standard API formats)
+      if (response && Array.isArray(response.data)) {
+        return response.data;
+      }
+
+      console.warn('⚠️ Unexpected notification format:', response);
+      return [];
     } catch (error) {
       console.error('❌ Failed to fetch notifications:', error);
       return [];
