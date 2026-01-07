@@ -1,10 +1,11 @@
-// src/pages/Notification.js - COMPLETE VERSION WITH ALL DATA SOURCES
+// src/pages/Notification.js - UPDATED WITH ORIGINAL DESIGN & BACKEND COMPATIBILITY
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box, Typography, Paper, Button, Chip, Dialog, DialogTitle, DialogContent,
-  DialogActions, Grid, Alert, IconButton,
+  DialogActions, Alert, IconButton,
   Badge, useMediaQuery, useTheme, LinearProgress, alpha,
-  Tabs, Tab, Snackbar, CircularProgress, Stack, Card
+  Tabs, Tab, Snackbar, CircularProgress, Stack, Card,
+  FormControl, InputLabel, Select, MenuItem
 } from '@mui/material';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import ReForestAppBar from './AppBar.jsx';
@@ -23,11 +24,13 @@ import AssignmentIcon from '@mui/icons-material/Assignment';
 import ForestIcon from '@mui/icons-material/Forest';
 import CloseIcon from '@mui/icons-material/Close';
 import PersonIcon from '@mui/icons-material/Person';
+import SortIcon from '@mui/icons-material/Sort';
+import FilterListIcon from '@mui/icons-material/FilterList';
 
 const drawerWidth = 240;
 
 // =============================================================================
-// DATE FORMATTING FUNCTIONS - REMOVED TIME
+// DATE FORMATTING FUNCTIONS - DATE ONLY
 // =============================================================================
 
 const formatDisplayDate = (dateInput) => {
@@ -39,8 +42,7 @@ const formatDisplayDate = (dateInput) => {
     if (dateInput && typeof dateInput === 'object' && dateInput.toDate) {
       dateObj = dateInput.toDate();
     } else if (typeof dateInput === 'string') {
-      // Handle your specific format: "December 6, 2025 at 4:26:39 PM UTC+8"
-      const normalizedDateStr = dateInput.replace(' ', ' '); // Replace special space
+      const normalizedDateStr = dateInput.replace(' ', ' ');
       dateObj = new Date(normalizedDateStr);
     } else if (dateInput instanceof Date) {
       dateObj = dateInput;
@@ -65,24 +67,15 @@ const formatDisplayDate = (dateInput) => {
   }
 };
 
-// REMOVED THE formatDisplayDateTime FUNCTION COMPLETELY - NO TIME DISPLAY
-
 // =============================================================================
-// HELPER FUNCTIONS FOR DATA FETCHING
+// DATA FETCHING FUNCTIONS
 // =============================================================================
 
 // Fetch user data
-const fetchUserData = async (userRef) => {
+const fetchUserData = async (userId) => {
   try {
-    if (!userRef) {
+    if (!userId) {
       return { fullName: 'Unknown User', email: 'N/A' };
-    }
-    
-    let userId;
-    if (userRef.includes('/')) {
-      userId = userRef.split('/').pop();
-    } else {
-      userId = userRef;
     }
     
     let userData = {};
@@ -91,7 +84,7 @@ const fetchUserData = async (userRef) => {
         userData = await apiService.getUser(userId);
       }
     } catch (error) {
-      console.log('User API not available for email');
+      console.log('User API not available');
     }
     
     return {
@@ -104,142 +97,13 @@ const fetchUserData = async (userRef) => {
   }
 };
 
-// Fetch planting task data
-const fetchTaskData = async (taskRef) => {
-  try {
-    if (!taskRef) {
-      return { recommendedSeedlings: [] };
-    }
-    
-    let taskId;
-    if (taskRef.includes('/')) {
-      taskId = taskRef.split('/').pop();
-    } else if (taskRef.startsWith('plantingtasks/')) {
-      taskId = taskRef.replace('plantingtasks/', '');
-    } else {
-      taskId = taskRef;
-    }
-    
-    let taskData = {};
-    try {
-      if (apiService.getPlantingTaskById && typeof apiService.getPlantingTaskById === 'function') {
-        taskData = await apiService.getPlantingTaskById(taskId);
-      }
-    } catch (error) {
-      console.log('Task API not available');
-    }
-    
-    return {
-      recommendedSeedlings: taskData.recommendedSeedlings || [],
-      taskStatus: taskData.task_status || 'Unknown'
-    };
-  } catch (error) {
-    console.error('Error fetching task data:', error);
-    return { recommendedSeedlings: [] };
-  }
-};
-
-// Fetch seedling data
-const fetchSeedlingData = async (seedlingRef, taskData) => {
-  try {
-    if (!seedlingRef) {
-      return { seedlingName: 'Unknown Seedling' };
-    }
-    
-    // If seedlingRef is already a name (like "Cashew"), use it directly
-    if (!seedlingRef.includes('/') && !seedlingRef.startsWith('seedlings/')) {
-      // Try to find more details from task data if available
-      if (taskData && taskData.recommendedSeedlings) {
-        const seedlingDetail = taskData.recommendedSeedlings.find(
-          seedling => seedling.seedling_commonName === seedlingRef
-        );
-        if (seedlingDetail) {
-          return {
-            seedlingName: seedlingDetail.seedling_commonName,
-            scientificName: seedlingDetail.seedling_scientificName,
-            category: seedlingDetail.seedling_category,
-            successRate: seedlingDetail.seedling_successRate
-          };
-        }
-      }
-      
-      return { seedlingName: seedlingRef };
-    }
-    
-    // If it's a reference, try to resolve it
-    let seedlingId;
-    if (seedlingRef.includes('/')) {
-      seedlingId = seedlingRef.split('/').pop();
-    } else {
-      seedlingId = seedlingRef;
-    }
-    
-    let seedlingData = {};
-    try {
-      if (apiService.getTreeSeedlingById && typeof apiService.getTreeSeedlingById === 'function') {
-        seedlingData = await apiService.getTreeSeedlingById(seedlingId);
-      }
-    } catch (error) {
-      console.log('Seedling API not available');
-    }
-    
-    return {
-      seedlingName: seedlingData.seedling_commonName || seedlingData.commonName || seedlingRef,
-      scientificName: seedlingData.seedling_scientificName || seedlingData.scientificName,
-      category: seedlingData.seedling_category || seedlingData.category,
-      successRate: seedlingData.seedling_successRate || seedlingData.successRate
-    };
-  } catch (error) {
-    console.error('Error fetching seedling data:', error);
-    return { seedlingName: seedlingRef || 'Unknown Seedling' };
-  }
-};
-
-// Move this BEFORE fetchNotifications() function
-const fetchAssignedSeedlingsNotifications = async () => {
-  try {
-    console.log('📡 Fetching assigned_seedlings notifications...');
-    
-    let response = await apiService.getAssignedSeedlingsNotifications();
-    
-    let notifications = Array.isArray(response) ? response : 
-                       response?.notifications || response?.data || [];
-    
-    return notifications.map(notification => ({
-      id: notification.notificationId || notification.id,
-      type: 'assigned_seedlings',
-      title: 'Seedling Assignment',
-      message: notification.message || notification.notificationText,
-      seedlingName: notification.seedlingName,
-      location_address: notification.location_address,
-      locationName: notification.locationName,
-      requestId: notification.requestId,
-      recommendationId: notification.recommendationId,
-      timestamp: notification.timestamp || notification.created_at,
-      isRead: notification.isRead || false,
-      priority: notification.priority || 'high',
-      recipient_role: notification.recipient_role || 'planter',
-      userId: notification.userRef,
-      isRealNotification: true
-    }));
-  } catch (error) {
-    console.error('❌ Failed to load assigned_seedlings notifications:', error);
-    return [];
-  }
-};
-
-// =============================================================================
-// DATA FETCHING FUNCTIONS
-// =============================================================================
-
-// Main function to fetch notifications from your updated API
+// Main function to fetch notifications from backend
 const fetchNotifications = async () => {
   try {
-    console.log('📡 Fetching request_submitted notifications...');
+    console.log('📡 Fetching notifications from backend...');
     
     let response;
     try {
-      // Your updated API only returns request_submitted notifications
       response = await apiService.getNotifications();
     } catch (apiError) {
       console.error('❌ Notifications API failed:', apiError);
@@ -266,255 +130,86 @@ const fetchNotifications = async () => {
     
     console.log(`✅ Found ${notifications.length} raw notifications`);
     
-    // Transform notifications to match your data structure
-    const transformedNotifications = await Promise.all(
+    // Enrich notifications with user data
+    const enrichedNotifications = await Promise.all(
       notifications.map(async (notification) => {
-        const id = notification.notificationId || notification.id || notification._id;
+        const id = notification.id || notification.notificationId || notification._id;
         
-        // Get user data if needed
+        // Get user data
         const userData = await fetchUserData(notification.userId);
+        
+        // Determine title and message based on type
+        let displayTitle, displayMessage;
+        
+        switch (notification.type) {
+          case 'request_submitted':
+            displayTitle = 'Planting Request Submitted';
+            displayMessage = `${notification.fullName || userData.fullName} has submitted a planting request`;
+            break;
+          case 'done_planting':
+            displayTitle = 'Planting Completed';
+            displayMessage = `${notification.fullName || userData.fullName} has completed planting`;
+            break;
+          default:
+            displayTitle = notification.title || 'Notification';
+            displayMessage = notification.message || '';
+        }
         
         return {
           id: id || `temp-${Date.now()}-${Math.random()}`,
           notificationId: notification.notificationId || notification.id || id,
           type: notification.type || 'request_submitted',
-          title: notification.title || 'Request Submitted',
-          message: notification.message || '',
-          fullName: notification.fullName || userData.fullName || 'Unknown User',
+          title: displayTitle,
+          message: displayMessage,
+          fullName: notification.fullName || userData.fullName,
           userEmail: userData.email,
           location: notification.location || '',
-          location_address: notification.location || '', // Alias for compatibility
           preferred_date: notification.preferred_date || '',
-          request_date: notification.created_at, // Use created_at as request date
           requestId: notification.requestId || '',
           userId: notification.userId || '',
           status: notification.status || 'pending',
-          request_status: notification.status || 'pending', // Alias
           isRead: notification.isRead !== undefined ? notification.isRead : false,
-          read: notification.isRead !== undefined ? notification.isRead : false, // Alias
+          read: notification.isRead !== undefined ? notification.isRead : false,
           created_at: notification.created_at,
           timestamp: notification.created_at,
           isRealNotification: true,
-          // Formatted dates - DATE ONLY, NO TIME
+          // Formatted dates - DATE ONLY
           formatted_preferred_date: formatDisplayDate(notification.preferred_date),
-          formatted_request_date: formatDisplayDate(notification.created_at),
-          // Additional metadata for display
+          formatted_created_at: formatDisplayDate(notification.created_at),
+          // For sorting
+          sortableDate: new Date(notification.created_at).getTime(),
+          // Additional metadata
           rawNotification: notification
         };
       })
     );
     
-    console.log(`✅ Transformed ${transformedNotifications.length} notifications`);
+    console.log(`✅ Enriched ${enrichedNotifications.length} notifications`);
     
-    return transformedNotifications.filter(notification => notification.id);
+    return enrichedNotifications.filter(notification => notification.id);
   } catch (error) {
     console.error('❌ Fetch notifications failed:', error.message);
     return [];
   }
 };
 
-// Fetch planting requests
-const fetchPlantingRequests = async () => {
-  try {
-    console.log('📡 Fetching planting requests...');
-    
-    let response;
-    try {
-      response = await apiService.getPlantingRequests();
-    } catch (error) {
-      console.error('❌ Planting requests API failed:', error);
-      return [];
-    }
-    
-    let requests = [];
-    
-    if (Array.isArray(response)) {
-      requests = response;
-    } else if (response && Array.isArray(response.data)) {
-      requests = response.data;
-    } else if (response && response.success && Array.isArray(response.data)) {
-      requests = response.data;
-    } else {
-      console.log('⚠️ No planting requests found in response');
-      return [];
-    }
-    
-    // Enrich requests with user data
-    const enrichedRequests = await Promise.all(
-      requests.map(async (request) => {
-        const userData = await fetchUserData(request.userRef);
-        
-        return {
-          ...request,
-          id: request.id || request.requestId,
-          requestId: request.requestId || request.id,
-          fullName: request.fullName || userData.fullName,
-          userEmail: userData.email,
-          location_address: request.location_address || request.location || 'Unknown Location',
-          locationName: request.location_address || request.location || 'Unknown Location',
-          request_status: request.request_status || request.status || 'pending',
-          organization: request.organization || 'Volunteer Planter',
-          request_notes: request.request_notes || request.notes,
-          formatted_preferred_date: formatDisplayDate(request.preferred_date),
-          formatted_request_date: formatDisplayDate(request.request_date),
-          // For notification compatibility
-          type: 'plant_request',
-          message: `${request.fullName || userData.fullName} has submitted a planting request`,
-          isRealNotification: false,
-          isRead: false,
-          timestamp: request.request_date || request.createdAt
-        };
-      })
-    );
-    
-    console.log(`✅ Found ${enrichedRequests.length} planting requests`);
-    
-    return enrichedRequests;
-  } catch (error) {
-    console.error('❌ Fetch planting requests failed:', error.message);
-    return [];
-  }
-};
+// =============================================================================
+// SORTING FUNCTION
+// =============================================================================
 
-// Fetch planting records with focused debugging
-const fetchPlantingRecords = async (plantingRequests) => {
-  try {
-    console.log('📡 Fetching planting records...');
+const sortNotifications = (notifications, sortOrder) => {
+  const sorted = [...notifications].sort((a, b) => {
+    const dateA = a.sortableDate || new Date(a.created_at || 0).getTime();
+    const dateB = b.sortableDate || new Date(b.created_at || 0).getTime();
     
-    let response;
-    try {
-      response = await apiService.getPlantingRecords();
-    } catch (error) {
-      console.error('❌ Planting records API failed:', error);
-      return [];
-    }
-    
-    let records = [];
-    
-    if (Array.isArray(response)) {
-      records = response;
-    } else if (response && Array.isArray(response.data)) {
-      records = response.data;
-    } else if (response && response.success && Array.isArray(response.data)) {
-      records = response.data;
+    if (sortOrder === 'newest') {
+      return dateB - dateA; // Newest first
     } else {
-      console.log('⚠️ No planting records found in response');
-      return [];
+      return dateA - dateB; // Oldest first
     }
-    
-    console.log(`🔍 Found ${records.length} planting records`);
-    
-    // Create maps from planting requests for user names and locations
-    const userRefToNameMap = {};
-    const userRefToLocationMap = {};
-    
-    plantingRequests.forEach((request, index) => {
-      if (request.userRef) {
-        // Store with exact userRef match
-        if (request.fullName) {
-          userRefToNameMap[request.userRef] = request.fullName;
-        }
-        
-        // Check ALL possible location fields
-        const location = request.location_address || request.location || request.locationName;
-        if (location && location !== 'Unknown Location') {
-          userRefToLocationMap[request.userRef] = location;
-        }
-      }
-    });
-    
-    // Enrich records with referenced data
-    const enrichedRecords = await Promise.all(
-      records.map(async (record, index) => {
-        try {
-          // Check if we can find this userRef in our maps
-          const foundName = userRefToNameMap[record.userRef];
-          const foundLocation = userRefToLocationMap[record.userRef];
-          
-          // If no location found, try alternative userRef formats
-          if (!foundLocation) {
-            // Try without leading slash
-            const userRefWithoutSlash = record.userRef.startsWith('/') ? record.userRef.substring(1) : record.userRef;
-            const altLocation1 = userRefToLocationMap[userRefWithoutSlash];
-            
-            // Try just the user ID part
-            const userIdOnly = record.userRef.split('/').pop();
-            const altLocation2 = userRefToLocationMap[userIdOnly];
-          }
-          
-          const userFullName = foundName || 'Unknown User';
-          const userLocation = foundLocation || 'Unknown Location';
-          
-          const [userData, taskData] = await Promise.all([
-            fetchUserData(record.userRef),
-            fetchTaskData(record.taskRef)
-          ]);
-          
-          const seedlingData = await fetchSeedlingData(record.seedlingRef, taskData);
-          
-          const recordDate = record.record_date || record.record_datePlanted || record.createdAt;
-          
-          const enrichedRecord = {
-            ...record,
-            id: record.id || record.recordId,
-            fullName: userFullName,
-            userEmail: userData.email,
-            locationName: userLocation,
-            locationData: { location_name: userLocation },
-            treeSeedlingName: seedlingData.seedlingName,
-            scientificName: seedlingData.scientificName,
-            seedlingCategory: seedlingData.category,
-            successRate: seedlingData.successRate,
-            seedlingRef: record.seedlingRef,
-            taskStatus: taskData.taskStatus,
-            recommendedSeedlings: taskData.recommendedSeedlings,
-            status: record.status || 'completed',
-            notes: record.notes || record.record_notes || 'No notes',
-            // DATE ONLY - NO TIME
-            formatted_planting_date: formatDisplayDate(recordDate),
-            raw_record_date: recordDate,
-            // For notification compatibility
-            type: 'planting_record',
-            message: `${userFullName} has planted ${seedlingData.seedlingName}`,
-            isRealNotification: false,
-            isRead: false,
-            timestamp: recordDate
-          };
-          
-          return enrichedRecord;
-          
-        } catch (error) {
-          console.error(`❌ Error enriching planting record ${index}:`, error);
-          const recordDate = record.record_date || record.record_datePlanted || record.createdAt;
-          return {
-            ...record,
-            id: record.id || record.recordId,
-            fullName: 'Unknown User',
-            userEmail: 'N/A',
-            locationName: 'Unknown Location',
-            treeSeedlingName: record.seedlingRef || 'Unknown Tree',
-            status: record.status || 'completed',
-            notes: record.notes || 'No notes',
-            // DATE ONLY - NO TIME
-            formatted_planting_date: formatDisplayDate(recordDate),
-            // For notification compatibility
-            type: 'planting_record',
-            message: `Unknown user has planted ${record.seedlingRef || 'a tree'}`,
-            isRealNotification: false,
-            isRead: false,
-            timestamp: recordDate
-          };
-        }
-      })
-    );
-    
-    console.log(`✅ Enriched ${enrichedRecords.length} planting records`);
-    
-    return enrichedRecords;
-  } catch (error) {
-    console.error('❌ Fetch planting records failed:', error.message);
-    return [];  
-  }
+  });
+  
+  return sorted;
 };
 
 // =============================================================================
@@ -523,8 +218,6 @@ const fetchPlantingRecords = async (plantingRequests) => {
 
 const NotificationPanel = () => {
   const { user, logout } = useAuth();
-  const [plantingRequests, setPlantingRequests] = useState([]);
-  const [plantingRecords, setPlantingRecords] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [selectedItem, setSelectedItem] = useState(null);
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
@@ -533,6 +226,10 @@ const NotificationPanel = () => {
   const [activeTab, setActiveTab] = useState(0);
   const [alert, setAlert] = useState({ open: false, message: '', severity: 'info' });
   const [saving, setSaving] = useState(false);
+  
+  // Sorting and filtering states
+  const [sortOrder, setSortOrder] = useState('newest'); // 'newest' or 'oldest'
+  const [filterType, setFilterType] = useState('all'); // 'all', 'request_submitted', or 'done_planting'
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
@@ -545,55 +242,40 @@ const NotificationPanel = () => {
     setActiveTab(newValue);
   };
 
+  const handleSortChange = (event) => {
+    setSortOrder(event.target.value);
+  };
+
+  const handleFilterChange = (event) => {
+    setFilterType(event.target.value);
+  };
+
   // Data loading
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
       
-      console.log('🔄 Loading all data...');
+      console.log('🔄 Loading notifications...');
 
-      // First fetch notifications and planting requests
-      const [
-        notificationsData,
-        requestsData,
-        assignedSeedlingsData
-      ] = await Promise.all([
-        fetchNotifications().catch(error => {
-          console.error('❌ Failed to load notifications:', error);
-          return [];
-        }),
-        fetchPlantingRequests().catch(error => {
-          console.error('❌ Failed to load planting requests:', error);
-          return [];
-        }),
-        fetchAssignedSeedlingsNotifications().catch(error => {
-          console.error('❌ Failed to load assigned seedlings notifications:', error);
-          return [];
-        })
-      ]);
-      // Then fetch planting records using the planting requests data
-      const recordsData = await fetchPlantingRecords(requestsData).catch(error => {
-        console.error('❌ Failed to load planting records:', error);
+      const notificationsData = await fetchNotifications().catch(error => {
+        console.error('❌ Failed to load notifications:', error);
         return [];
       });
 
-      setNotifications([...notificationsData, ...assignedSeedlingsData]);
-      setPlantingRequests(requestsData);
-      setPlantingRecords(recordsData);
+      setNotifications(notificationsData);
 
-      const totalLoaded = notificationsData.length + requestsData.length + recordsData.length;
-      console.log(`✅ Loaded ${totalLoaded} items total`);
+      console.log(`✅ Loaded ${notificationsData.length} notifications`);
       
-      if (totalLoaded > 0) {
+      if (notificationsData.length > 0) {
         setAlert({
           open: true,
-          message: `Loaded ${totalLoaded} items successfully`,
+          message: `Loaded ${notificationsData.length} notifications successfully`,
           severity: 'success'
         });
       } else {
         setAlert({
           open: true,
-          message: 'No data available',
+          message: 'No notifications available',
           severity: 'info'
         });
       }
@@ -722,9 +404,7 @@ const NotificationPanel = () => {
     switch (type) {
       case 'request_submitted': 
         return <NewReleasesIcon />;
-      case 'plant_request':
-        return <NewReleasesIcon />;
-      case 'planting_record': 
+      case 'done_planting':
         return <ForestIcon />;
       default: 
         return <NotificationsIcon />;
@@ -738,86 +418,36 @@ const NotificationPanel = () => {
     ).join(' ');
   };
 
-  // UPDATED: Only show date, not time
+  // Only show date, not time
   const formatDateTime = (date) => {
-    return formatDisplayDate(date); // Only date, no time
+    return formatDisplayDate(date);
   };
 
-  // Combine all notifications
-  const allNotifications = [
-    ...notifications.map(notification => ({
-      ...notification,
-      source: 'notification',
-      displayType: notification.type,
-      displayTitle: notification.title,
-      displayMessage: notification.message,
-      displayTimestamp: notification.timestamp || notification.created_at,
-      displayLocation: notification.location,
-      displayStatus: notification.status,
-      displayFullName: notification.fullName
-    })),
-    ...plantingRequests.map(request => ({
-      ...request,
-      source: 'planting_request',
-      displayType: 'plant_request',
-      displayTitle: 'New Planting Request',
-      displayMessage: request.message || `${request.fullName} has submitted a planting request`,
-      displayTimestamp: request.timestamp || request.request_date,
-      displayLocation: request.location_address,
-      displayStatus: request.request_status,
-      displayFullName: request.fullName,
-      isRealNotification: false,
-      isRead: false
-    })),
-    ...plantingRecords.map(record => ({
-      ...record,
-      source: 'planting_record',
-      displayType: 'planting_record',
-      displayTitle: 'Planting Activity Completed',
-      displayMessage: record.message || `${record.fullName} has planted ${record.treeSeedlingName}`,
-      displayTimestamp: record.timestamp || record.raw_record_date,
-      displayLocation: record.locationName,
-      displayStatus: record.status,
-      displayFullName: record.fullName,
-      isRealNotification: false,
-      isRead: false
-    }))
-  ].sort((a, b) => {
-    const dateA = new Date(a.displayTimestamp || a.timestamp || a.created_at);
-    const dateB = new Date(b.displayTimestamp || b.timestamp || b.created_at);
-    return dateB - dateA; // Newest first
-  });
+  // Filter notifications by type and tab
+  const getFilteredNotifications = () => {
+    let filtered = [...notifications];
+    
+    // Filter by dropdown selection
+    if (filterType !== 'all') {
+      filtered = filtered.filter(n => n.type === filterType);
+    }
+    
+    // Filter by tab (Tab 1 = Requests only)
+    if (activeTab === 1) {
+      filtered = filtered.filter(n => n.type === 'request_submitted');
+    }
+    
+    return filtered;
+  };
 
-  const plantingRequestsForTab = plantingRequests.map(request => ({
-    ...request,
-    source: 'planting_request',
-    displayType: 'plant_request',
-    displayTitle: 'New Planting Request',
-    displayMessage: request.message || `${request.fullName} has submitted a planting request`,
-    displayTimestamp: request.timestamp || request.request_date,
-    displayLocation: request.location_address,
-    displayStatus: request.request_status,
-    displayFullName: request.fullName,
-    isRealNotification: false,
-    isRead: false
-  }));
+  // Get sorted notifications
+  const filteredNotifications = getFilteredNotifications();
+  const sortedNotifications = sortNotifications(filteredNotifications, sortOrder);
 
-  // Filter for request_submitted notifications only
-  const requestSubmittedNotifications = allNotifications.filter(
-    item => item.displayType === 'request_submitted' || 
-           (item.source === 'notification' && item.type === 'request_submitted')
-  );
-
-  // Filter for planting records only
-  const plantingRecordNotifications = allNotifications.filter(
-    item => item.displayType === 'planting_record'
-  );
-
-  // Calculate unread counts
-  const unreadCount = allNotifications.filter(n => n.isRealNotification && !n.isRead).length;
-  const requestSubmittedUnreadCount = requestSubmittedNotifications.filter(
-    n => n.isRealNotification && !n.isRead
-  ).length;
+  // Calculate counts
+  const totalUnreadCount = notifications.filter(n => !n.isRead).length;
+  const requestCount = notifications.filter(n => n.type === 'request_submitted').length;
+  const plantingCount = notifications.filter(n => n.type === 'done_planting').length;
 
   const NotificationRow = ({ item }) => (
     <Paper 
@@ -826,9 +456,8 @@ const NotificationPanel = () => {
         mb: 1.5,
         borderRadius: 2,
         borderLeft: `4px solid ${
-          item.displayType === 'request_submitted' ? theme.palette.warning.main :
-          item.displayType === 'plant_request' ? theme.palette.warning.main :
-          item.displayType === 'planting_record' ? theme.palette.success.main :
+          item.type === 'request_submitted' ? theme.palette.warning.main :
+          item.type === 'done_planting' ? theme.palette.success.main :
           theme.palette.primary.main
         }`,
         backgroundColor: item.isRead ? 'background.paper' : alpha(theme.palette.primary.main, 0.05),
@@ -869,14 +498,12 @@ const NotificationPanel = () => {
 
         <Box sx={{ 
           color: 
-            item.displayStatus === 'pending' ? 'warning.main' :
-            item.displayType === 'request_submitted' ? 'warning.main' :
-            item.displayType === 'plant_request' ? 'warning.main' :
-            item.displayType === 'planting_record' ? 'success.main' :
+            item.type === 'request_submitted' ? 'warning.main' :
+            item.type === 'done_planting' ? 'success.main' :
             'primary.main',
           mt: 0.5
         }}>
-          {getNotificationIcon(item.displayType)}
+          {getNotificationIcon(item.type)}
         </Box>
 
         
@@ -887,19 +514,17 @@ const NotificationPanel = () => {
               sx={{
                 fontWeight: item.isRead ? 500 : 700,
                 color:
-                  item.displayStatus === 'pending' ? 'warning.main' :
-                  item.displayType === 'request_submitted' ? 'warning.main' :
-                  item.displayType === 'plant_request' ? 'warning.main' :
-                  item.displayType === 'planting_record' ? 'success.main' :
+                  item.type === 'request_submitted' ? 'warning.main' :
+                  item.type === 'done_planting' ? 'success.main' :
                   'primary.main'
               }}
             >
-              {item.displayTitle}
+              {item.title}
             </Typography>
             <Chip 
-              label={formatType(item.displayType)} 
+              label={formatType(item.type)} 
               size="small" 
-              color={getStatusColor(item.displayType === 'request_submitted' ? 'submitted' : item.displayType)}
+              color={item.type === 'request_submitted' ? 'warning' : 'success'}
               variant="outlined"
               sx={{ fontWeight: 500 }}
             />
@@ -916,11 +541,11 @@ const NotificationPanel = () => {
                 }}
               />
             )}
-            {item.displayStatus && (
+            {item.status && (
               <Chip 
-                label={item.displayStatus} 
+                label={item.status} 
                 size="small" 
-                color={getStatusColor(item.displayStatus)}
+                color={getStatusColor(item.status)}
                 sx={{ 
                   fontWeight: 600,
                   height: 20,
@@ -938,22 +563,21 @@ const NotificationPanel = () => {
               fontWeight: item.isRead ? 400 : 500
             }}
           >
-            {item.displayMessage}
+            {item.message}
           </Typography>
           
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-            {/* UPDATED: Only show date, not time */}
             <Typography variant="caption" color="text.secondary">
-              {formatDateTime(item.displayTimestamp)}
+              {formatDateTime(item.created_at)}
             </Typography>
-            {item.displayFullName && (
+            {item.fullName && (
               <Typography variant="caption" color="text.secondary">
-                • By: {item.displayFullName}
+                • By: {item.fullName}
               </Typography>
             )}
-            {item.displayLocation && (
+            {item.location && (
               <Typography variant="caption" color="text.secondary">
-                • Location: {item.displayLocation}
+                • Location: {item.location}
               </Typography>
             )}
           </Box>
@@ -974,396 +598,149 @@ const NotificationPanel = () => {
     </Paper>
   );
 
-  // Get current items based on active tab
-  const getCurrentItems = () => {
-    switch (activeTab) {
-      case 0: return allNotifications;
-      case 1: return plantingRequestsForTab;
-      default: return allNotifications;
-    }
-  };
-
-  const currentItems = getCurrentItems();
-
   // Render different details based on item type
   const renderDetailsContent = (item) => {
     if (!item) return null;
 
-    switch (item.displayType) {
-      case 'request_submitted':
-        return (
-          <Stack spacing={3}>
-            {/* Planter Information */}
-            <Box>
-              <Typography variant="subtitle1" fontWeight="600" gutterBottom>
-                <PersonIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5 }} />
-                Planter Information
-              </Typography>
-              <Card variant="outlined" sx={{ p: 2 }}>
-                <Stack spacing={2}>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary" display="block">
-                      Name
-                    </Typography>
-                    <Typography variant="body1" fontWeight="600">
-                      {item.displayFullName || item.fullName || 'Unknown User'}
-                    </Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary" display="block">
-                      Email
-                    </Typography>
-                    <Typography variant="body1">
-                      {item.userEmail || 'No email'}
-                    </Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary" display="block">
-                      User ID
-                    </Typography>
-                    <Typography variant="body2" fontFamily="monospace">
-                      {item.userId || 'N/A'}
-                    </Typography>
-                  </Box>
-                </Stack>
-              </Card>
-            </Box>
-
-            {/* Request Details */}
-            <Box>
-              <Typography variant="subtitle1" fontWeight="600" gutterBottom>
-                <CalendarTodayIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5 }} />
-                Request Details
-              </Typography>
-              <Card variant="outlined" sx={{ p: 2 }}>
-                <Stack spacing={2}>
-        
-                  <Box>
-                    <Typography variant="caption" color="text.secondary" display="block">
-                      Submission Date
-                    </Typography>
-                    {/* UPDATED: Only show date, not time */}
-                    <Typography variant="body1" fontWeight="600">
-                      {formatDisplayDate(item.displayTimestamp || item.timestamp || item.created_at)}
-                    </Typography>
-                  </Box>
-                  {item.preferred_date && (
-                    <Box>
-                      <Typography variant="caption" color="text.secondary" display="block">
-                        Preferred Planting Date
-                      </Typography>
-                      <Typography variant="body1" fontWeight="600">
-                        {item.formatted_preferred_date || formatDisplayDate(item.preferred_date)}
-                      </Typography>
-                    </Box>
-                  )}
-                  <Box>
-                    <Typography variant="caption" color="text.secondary" display="block">
-                      Status
-                    </Typography>
-                    <Chip 
-                      label={item.displayStatus || item.status || 'pending'} 
-                      color={getStatusColor(item.displayStatus || item.status || 'pending')}
-                      size="small"
-                      sx={{ fontWeight: 600 }}
-                    />
-                  </Box>
-                  {item.request_notes && (
-                    <Box>
-                      <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
-                        Additional Notes
-                      </Typography>
-                      <Paper elevation={0} sx={{ p: 1.5, bgcolor: 'grey.50', borderRadius: 1 }}>
-                        <Typography variant="body2">
-                          {item.request_notes}
-                        </Typography>
-                      </Paper>
-                    </Box>
-                  )}
-                </Stack>
-              </Card>
-            </Box>
-            
-            {/* Location */}
-            <Box>
-              <Typography variant="subtitle1" fontWeight="600" gutterBottom>
-                <LocationOnIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5 }} />
-                Planting Location
-              </Typography>
-              <Card variant="outlined" sx={{ p: 2 }}>
-                <Typography variant="body1" fontWeight="600">
-                  {item.displayLocation || item.location || item.location_address || 'Unknown Location'}
-                </Typography>
-              </Card>
-            </Box>
-          </Stack>
-        );
-
-      case 'planting_record':
-        return (
-          <Stack spacing={3}>
-            {/* Planter Information */}
-            <Box>
-              <Typography variant="subtitle1" fontWeight="600" gutterBottom>
-                <PersonIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5 }} />
-                Planter Information
-              </Typography>
-              <Card variant="outlined" sx={{ p: 2 }}>
-                <Stack spacing={2}>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary" display="block">
-                      Name
-                    </Typography>
-                    <Typography variant="body1" fontWeight="600">
-                      {item.fullName || 'Unknown User'}
-                    </Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary" display="block">
-                      Email
-                    </Typography>
-                    <Typography variant="body1">
-                      {item.userEmail || 'No email'}
-                    </Typography>
-                  </Box>
-                </Stack>
-              </Card>
-            </Box>
-
-            {/* Location Information */}
-            <Box>
-              <Typography variant="subtitle1" fontWeight="600" gutterBottom>
-                <LocationOnIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5 }} />
-                Location Information
-              </Typography>
-              <Card variant="outlined" sx={{ p: 2 }}>
-                <Stack spacing={2}>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary" display="block">
-                      Location Name
-                    </Typography>
-                    <Typography variant="body1" fontWeight="600">
-                      {item.locationName}
-                    </Typography>
-                  </Box>
-                </Stack>
-              </Card>
-            </Box>
-
-            {/* Planting Details */}
-            <Box>
-              <Typography variant="subtitle1" fontWeight="600" gutterBottom>
-                <ForestIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5, color: 'success.main' }} />
-                Planting Details
-              </Typography>
-              <Card variant="outlined" sx={{ p: 2, bgcolor: 'rgba(46, 125, 50, 0.05)' }}>
-                <Stack spacing={2}>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary" display="block">
-                      Tree Seedling
-                    </Typography>
-                    <Typography variant="body1" fontWeight="600">
-                      {item.treeSeedlingName}
-                    </Typography>
-                    {item.scientificName && (
-                      <Typography variant="body2" color="text.secondary" fontStyle="italic">
-                        {item.scientificName}
-                      </Typography>
-                    )}
-                  </Box>
-                  
-                  {item.seedlingCategory && (
-                    <Box>
-                      <Typography variant="caption" color="text.secondary" display="block">
-                        Category
-                      </Typography>
-                      <Chip 
-                        label={item.seedlingCategory} 
-                        size="small" 
-                        variant="outlined"
-                      />
-                    </Box>
-                  )}
-                  
-                  {item.successRate && (
-                    <Box>
-                      <Typography variant="caption" color="text.secondary" display="block">
-                        Success Rate
-                      </Typography>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <LinearProgress 
-                          variant="determinate" 
-                          value={item.successRate} 
-                          sx={{ flexGrow: 1, height: 8, borderRadius: 4 }}
-                          color={item.successRate > 80 ? 'success' : item.successRate > 60 ? 'warning' : 'error'}
-                        />
-                        <Typography variant="body2" fontWeight="600">
-                          {item.successRate}%
-                        </Typography>
-                      </Box>
-                    </Box>
-                  )}
-
-                  <Box>
-                    <Typography variant="caption" color="text.secondary" display="block">
-                      Planting Date
-                    </Typography>
-                    {/* UPDATED: Only show date, not time */}
-                    <Typography variant="body1" fontWeight="600">
-                      {item.formatted_planting_date}
-                    </Typography>
-                  </Box>
-
-                  <Box>
-                    <Typography variant="caption" color="text.secondary" display="block">
-                      Status
-                    </Typography>
-                    <Chip
-                      label={item.status || 'completed'}
-                      color="success"
-                      size="small"
-                      sx={{ fontWeight: 600 }}
-                    />
-                  </Box>
-
-                  {item.notes && item.notes !== 'No notes' && (
-                    <Box>
-                      <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
-                        Planting Notes
-                      </Typography>
-                      <Paper elevation={0} sx={{ p: 1.5, bgcolor: 'grey.50', borderRadius: 1 }}>
-                        <Typography variant="body2">
-                          {item.notes}
-                        </Typography>
-                      </Paper>
-                    </Box>
-                  )}
-                </Stack>
-              </Card>
-            </Box>
-          </Stack>
-        );
-
-      default:
-        return (
-  <Stack spacing={3}>
-    {/* Planter Information */}
-    <Box>
-      <Typography variant="subtitle1" fontWeight="600" gutterBottom>
-        <PersonIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5 }} />
-        Planter Information
-      </Typography>
-      <Card variant="outlined" sx={{ p: 2 }}>
-        <Stack spacing={2}>
-          <Box>
-            <Typography variant="caption" color="text.secondary" display="block">
-              Name
-            </Typography>
-            <Typography variant="body1" fontWeight="600">
-              {item.displayFullName || item.fullName || 'Unknown User'}
-            </Typography>
-          </Box>
-          <Box>
-            <Typography variant="caption" color="text.secondary" display="block">
-              Email
-            </Typography>
-            <Typography variant="body1">
-              {item.userEmail || 'No email'}
-            </Typography>
-          </Box>
-          {item.userId && (
-            <Box>
-              <Typography variant="caption" color="text.secondary" display="block">
-                User ID
-              </Typography>
-              <Typography variant="body2" fontFamily="monospace">
-                {item.userId}
-              </Typography>
-            </Box>
-          )}
-        </Stack>
-      </Card>
-    </Box>
-
-    {/* Notification Details */}
-    <Box>
-      <Typography variant="subtitle1" fontWeight="600" gutterBottom>
-        <NotificationsIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5 }} />
-        Notification Details
-      </Typography>
-      <Card variant="outlined" sx={{ p: 2, bgcolor: 'rgba(25, 210, 87, 0.05)' }}>
-        <Stack spacing={2}>
-          <Box>
-            <Typography variant="caption" color="text.secondary" display="block">
-              Title
-            </Typography>
-            <Typography variant="body1" fontWeight="600">
-              {item.displayTitle}
-            </Typography>
-          </Box>
-          
-
-          <Box>
-            <Typography variant="caption" color="text.secondary" display="block">
-              Created
-            </Typography>
-            {/* UPDATED: Only show date, not time */}
-            <Typography variant="body1" fontWeight="600">
-              {formatDisplayDate(item.displayTimestamp)}
-            </Typography>
-          </Box>
-          {item.preferred_date && (
+    return (
+      <Stack spacing={3}>
+        {/* Planter Information */}
+        <Box>
+          <Typography variant="subtitle1" fontWeight="600" gutterBottom>
+            <PersonIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5 }} />
+            Planter Information
+          </Typography>
+          <Card variant="outlined" sx={{ p: 2 }}>
+            <Stack spacing={2}>
               <Box>
                 <Typography variant="caption" color="text.secondary" display="block">
-                  Preferred Date
+                  Name
                 </Typography>
                 <Typography variant="body1" fontWeight="600">
-                  {formatDisplayDate(item.preferred_date)}
+                  {item.fullName || 'Unknown User'}
                 </Typography>
               </Box>
-            )}
-          
-          {item.notificationId && (
-            <Box>
-              <Typography variant="caption" color="text.secondary" display="block">
-                Notification ID
-              </Typography>
-              <Typography variant="body2" fontFamily="monospace">
-                {item.notificationId}
-              </Typography>
-            </Box>
-          )}
-          <Box>
-            <Typography variant="caption" color="text.secondary" display="block">
-              Message
-            </Typography>
-            <Paper elevation={0} sx={{ p: 1.5, bgcolor: 'grey.50', borderRadius: 1 }}>
-              <Typography variant="body2">
-                {item.displayMessage}
-              </Typography>
-            </Paper>
-          </Box>
-        </Stack>
-      </Card>
-    </Box>
+              {item.userEmail && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Email
+                  </Typography>
+                  <Typography variant="body1">
+                    {item.userEmail}
+                  </Typography>
+                </Box>
+              )}
+              {item.userId && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    User ID
+                  </Typography>
+                  <Typography variant="body2" fontFamily="monospace">
+                    {item.userId}
+                  </Typography>
+                </Box>
+              )}
+            </Stack>
+          </Card>
+        </Box>
 
-    {/* Location Information (if available) */}
-    {(item.displayLocation || item.location || item.location_address) && (
-      <Box>
-        <Typography variant="subtitle1" fontWeight="600" gutterBottom>
-          <LocationOnIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5 }} />
-          Location Information
-        </Typography>
-        <Card variant="outlined" sx={{ p: 2 }}>
-          <Typography variant="body1" fontWeight="600">
-            {item.displayLocation || item.location || item.location_address || 'Unknown Location'}
+        {/* Notification Details */}
+        <Box>
+          <Typography variant="subtitle1" fontWeight="600" gutterBottom>
+            {item.type === 'done_planting' ? (
+              <ForestIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5, color: 'success.main' }} />
+            ) : (
+              <NewReleasesIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5 }} />
+            )}
+            {item.type === 'request_submitted' ? 'Request Details' : 'Planting Details'}
           </Typography>
-        </Card>
-      </Box>
-    )}
-  </Stack>
-);
-    }
+          <Card variant="outlined" sx={{ 
+            p: 2, 
+            bgcolor: item.type === 'done_planting' ? 'rgba(46, 125, 50, 0.05)' : 'rgba(255, 193, 7, 0.05)' 
+          }}>
+            <Stack spacing={2}>
+              <Box>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Title
+                </Typography>
+                <Typography variant="body1" fontWeight="600">
+                  {item.title}
+                </Typography>
+              </Box>
+              
+              <Box>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Created Date
+                </Typography>
+                <Typography variant="body1" fontWeight="600">
+                  {formatDisplayDate(item.created_at)}
+                </Typography>
+              </Box>
+              
+              {item.preferred_date && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Preferred Date
+                  </Typography>
+                  <Typography variant="body1" fontWeight="600">
+                    {formatDisplayDate(item.preferred_date)}
+                  </Typography>
+                </Box>
+              )}
+              
+              <Box>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Status
+                </Typography>
+                <Chip 
+                  label={item.status} 
+                  color={getStatusColor(item.status)}
+                  size="small"
+                  sx={{ fontWeight: 600 }}
+                />
+              </Box>
+              
+              {item.requestId && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Request ID
+                  </Typography>
+                  <Typography variant="body2" fontFamily="monospace">
+                    {item.requestId}
+                  </Typography>
+                </Box>
+              )}
+              
+              <Box>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Message
+                </Typography>
+                <Paper elevation={0} sx={{ p: 1.5, bgcolor: 'grey.50', borderRadius: 1 }}>
+                  <Typography variant="body2">
+                    {item.message}
+                  </Typography>
+                </Paper>
+              </Box>
+            </Stack>
+          </Card>
+        </Box>
+
+        {/* Location Information */}
+        {item.location && (
+          <Box>
+            <Typography variant="subtitle1" fontWeight="600" gutterBottom>
+              <LocationOnIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5 }} />
+              Location
+            </Typography>
+            <Card variant="outlined" sx={{ p: 2 }}>
+              <Typography variant="body1" fontWeight="600">
+                {item.location}
+              </Typography>
+            </Card>
+          </Box>
+        )}
+      </Stack>
+    );
   };
 
   // Loading state
@@ -1405,7 +782,7 @@ const NotificationPanel = () => {
               </Typography>
             </Box>
             <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-              {unreadCount > 0 && (
+              {totalUnreadCount > 0 && (
                 <Button
                   startIcon={saving ? <CircularProgress size={20} /> : <MarkAsReadIcon />}
                   onClick={handleMarkAllAsRead}
@@ -1413,7 +790,7 @@ const NotificationPanel = () => {
                   color="primary"
                   disabled={saving}
                 >
-                  {saving ? 'Marking...' : `Mark All Read (${unreadCount})`}
+                  {saving ? 'Marking...' : `Mark All Read (${totalUnreadCount})`}
                 </Button>
               )}
               <Button
@@ -1427,6 +804,65 @@ const NotificationPanel = () => {
             </Box>
           </Box>
         </Box>
+
+        {/* Sorting and Filtering Controls */}
+        <Paper
+          elevation={0}
+          sx={{
+            mb: 3,
+            p: 2,
+            borderRadius: 2,
+            border: '1px solid',
+            borderColor: 'divider',
+          }}
+        >
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Typography variant="subtitle1" sx={{ color: '#2e7d32', fontWeight: 600, mr: 2 }}>
+              Filters & Sorting
+            </Typography>
+            
+            <FormControl size="small" sx={{ minWidth: 150 }}>
+              <InputLabel>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <FilterListIcon fontSize="small" />
+                  Filter Type
+                </Box>
+              </InputLabel>
+              <Select
+                value={filterType}
+                label="Filter Type"
+                onChange={handleFilterChange}
+              >
+                <MenuItem value="all">All Types</MenuItem>
+                <MenuItem value="request_submitted">Planting Requests</MenuItem>
+                <MenuItem value="done_planting">Planting Activities</MenuItem>
+              </Select>
+            </FormControl>
+
+            <FormControl size="small" sx={{ minWidth: 150 }}>
+              <InputLabel>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <SortIcon fontSize="small" />
+                  Sort By
+                </Box>
+              </InputLabel>
+              <Select
+                value={sortOrder}
+                label="Sort By"
+                onChange={handleSortChange}
+              >
+                <MenuItem value="newest">Newest First</MenuItem>
+                <MenuItem value="oldest">Oldest First</MenuItem>
+              </Select>
+            </FormControl>
+
+            <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography variant="body2" color="text.secondary">
+                Showing {sortedNotifications.length} of {notifications.length} notifications
+              </Typography>
+            </Box>
+          </Box>
+        </Paper>
 
         {/* Tabs with Notification Chips */}
         <Paper
@@ -1469,7 +905,7 @@ const NotificationPanel = () => {
             {/* Tab 0: All Notifications */}
             <Tab
               icon={
-                <Badge badgeContent={unreadCount} color="error">
+                <Badge badgeContent={totalUnreadCount} color="error">
                   <NotificationsIcon sx={{ fontSize: 20 }} />
                 </Badge>
               }
@@ -1479,7 +915,7 @@ const NotificationPanel = () => {
                     All Notifications
                   </Typography>
                   <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1 }}>
-                    {allNotifications.length} total
+                    {notifications.length} total
                   </Typography>
                 </Box>
               }
@@ -1489,7 +925,7 @@ const NotificationPanel = () => {
             {/* Tab 1: Planting Requests */}
             <Tab
               icon={
-                <Badge badgeContent={0} color="error">
+                <Badge badgeContent={notifications.filter(n => n.type === 'request_submitted' && !n.isRead).length} color="error">
                   <NewReleasesIcon sx={{ fontSize: 20 }} />
                 </Badge>
               }
@@ -1499,7 +935,7 @@ const NotificationPanel = () => {
                     Planting Requests
                   </Typography>
                   <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1 }}>
-                    {plantingRequests.length} requests
+                    {requestCount} requests
                   </Typography>
                 </Box>
               }
@@ -1512,16 +948,20 @@ const NotificationPanel = () => {
         {activeTab === 0 && (
           <>
             <Typography variant="h6" sx={{ color: '#2e7d32', fontWeight: 600, mb: 2 }}>All Notifications</Typography>
-            {allNotifications.length === 0 ? (
+            {sortedNotifications.length === 0 ? (
               <EmptyState 
                 icon={NotificationsIcon}
                 title="No notifications available"
-                description="New notifications will appear here when available"
+                description={
+                  filterType === 'all' 
+                    ? "New notifications will appear here when available"
+                    : `No ${filterType === 'request_submitted' ? 'planting requests' : 'planting activities'} found`
+                }
               />
             ) : (
               <Box>
-                {currentItems.map((item, index) => (
-                  <NotificationRow key={`${item.source}-${item.id}-${index}`} item={item} />
+                {sortedNotifications.map((item, index) => (
+                  <NotificationRow key={`${item.type}-${item.id}-${index}`} item={item} />
                 ))}
               </Box>
             )}
@@ -1529,23 +969,25 @@ const NotificationPanel = () => {
         )}
 
         {activeTab === 1 && (
-        <>
-          <Typography variant="h6" sx={{ color: '#2e7d32', fontWeight: 600, mb: 2 }}>Planting Requests</Typography>
-          {plantingRequestsForTab.length === 0 ? (
-            <EmptyState 
-              icon={NewReleasesIcon}
-              title="No planting requests"
-              description="New planting requests will appear here when submitted"
-            />
-          ) : (
-            <Box>
-              {currentItems.map((item, index) => (
-                <NotificationRow key={`${item.source}-${item.id}-${index}`} item={item} />
-              ))}
-            </Box>
-          )}
-        </>
-)}
+          <>
+            <Typography variant="h6" sx={{ color: '#2e7d32', fontWeight: 600, mb: 2 }}>Planting Requests</Typography>
+            {sortedNotifications.filter(n => n.type === 'request_submitted').length === 0 ? (
+              <EmptyState 
+                icon={NewReleasesIcon}
+                title="No planting requests"
+                description="New planting requests will appear here when submitted"
+              />
+            ) : (
+              <Box>
+                {sortedNotifications
+                  .filter(n => n.type === 'request_submitted')
+                  .map((item, index) => (
+                    <NotificationRow key={`${item.type}-${item.id}-${index}`} item={item} />
+                  ))}
+              </Box>
+            )}
+          </>
+        )}
 
         {/* Details Dialog */}
         <Dialog 
@@ -1557,9 +999,9 @@ const NotificationPanel = () => {
           <DialogTitle>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Typography variant="h6">
-                {selectedItem?.displayType === 'request_submitted' ? 'Request Details' : 
-                 selectedItem?.displayType === 'planting_record' ? 'Planting Record Details' : 
-                 'Planting Requests Details'}
+                {selectedItem?.type === 'request_submitted' ? 'Request Details' : 
+                 selectedItem?.type === 'done_planting' ? 'Planting Activity Details' : 
+                 'Notification Details'}
               </Typography>
               <IconButton onClick={() => setDetailDialogOpen(false)} size="small">
                 <CloseIcon />
