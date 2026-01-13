@@ -355,10 +355,17 @@ class ApiService {
   }
 
   // ========== NOTIFICATIONS ==========
-  async getNotifications() {
+  async getNotifications(params = {}) {
     try {
-      // Request with cache disabled
-      const response = await this.request('/api/notifications', { skipCache: true });
+      // Build query string if params are provided
+      let url = '/api/notifications';
+      if (Object.keys(params).length > 0) {
+        const queryString = new URLSearchParams(params).toString();
+        url = `${url}?${queryString}`;
+      }
+      
+      // Request with cache disabled for real-time updates
+      const response = await this.request(url, { skipCache: true });
       
       console.log('📦 Raw Notification Response:', response); // Debug log
 
@@ -385,13 +392,228 @@ class ApiService {
     }
   }
 
+  // NEW: Enhanced fetch for notification page
+  async getNotificationsPage(params = {}) {
+    try {
+      const queryString = new URLSearchParams(params).toString();
+      const response = await this.request(`/api/notifications/fetch/notifications-page?${queryString}`, { 
+        skipCache: true 
+      });
+      
+      console.log('📦 Notifications Page Response:', response); // Debug log
+      
+      if (response && response.success && Array.isArray(response.notifications)) {
+        return response;
+      }
+      
+      console.warn('⚠️ Unexpected notifications page format:', response);
+      
+      // Fallback to regular getNotifications
+      const fallbackNotifications = await this.getNotifications(params);
+      return {
+        success: true,
+        notifications: fallbackNotifications,
+        totalCount: fallbackNotifications.length,
+        page: 1,
+        pageSize: fallbackNotifications.length,
+        totalPages: 1,
+        counts: {
+          total: fallbackNotifications.length,
+          unread: fallbackNotifications.filter(n => !n.isRead && !n.read).length
+        }
+      };
+    } catch (error) {
+      console.error('❌ Failed to fetch notifications page:', error);
+      // Fallback to regular endpoint
+      return this.getNotifications(params).then(notifications => ({
+        success: true,
+        notifications: notifications,
+        totalCount: notifications.length,
+        page: 1,
+        pageSize: notifications.length,
+        totalPages: 1,
+        counts: {
+          total: notifications.length,
+          unread: notifications.filter(n => !n.isRead && !n.read).length
+        }
+      }));
+    }
+  }
+
+  // NEW: Get notification counts
+  async getNotificationCounts(userId = null) {
+    try {
+      const url = userId ? `/api/notifications/counts/${userId}` : '/api/notifications/counts';
+      const response = await this.request(url, { skipCache: true });
+      
+      if (response && response.success && response.counts) {
+        return response.counts;
+      }
+      
+      // Fallback: Calculate counts from notifications
+      console.warn('⚠️ Counts endpoint not available, calculating from notifications...');
+      const notifications = await this.getNotifications(userId ? { userId } : {});
+      const unreadCount = notifications.filter(n => !n.isRead && !n.read).length;
+      
+      return {
+        total: notifications.length,
+        unread: unreadCount,
+        byType: {
+          request_submitted: {
+            total: notifications.filter(n => n.type === 'request_submitted').length,
+            unread: notifications.filter(n => n.type === 'request_submitted' && (!n.isRead && !n.read)).length
+          },
+          assigned_seedlings: {
+            total: notifications.filter(n => n.type === 'assigned_seedlings').length,
+            unread: notifications.filter(n => n.type === 'assigned_seedlings' && (!n.isRead && !n.read)).length
+          }
+        }
+      };
+    } catch (error) {
+      console.error('❌ Failed to fetch notification counts:', error);
+      return {
+        total: 0,
+        unread: 0,
+        byType: {
+          request_submitted: { total: 0, unread: 0 },
+          assigned_seedlings: { total: 0, unread: 0 }
+        }
+      };
+    }
+  }
+
+  // NEW: Bulk mark notifications as read/unread
+  async bulkMarkNotificationsAsRead(notificationIds, isRead = true) {
+    try {
+      const result = await this.request('/api/notifications/bulk/read', {
+        method: 'PATCH',
+        body: { notificationIds, isRead },
+        skipCache: true
+      });
+      
+      // Invalidate cache since we updated notifications
+      this.invalidateCache('/api/notifications');
+      this.invalidateCache('/api/notifications/fetch/notifications-page');
+      
+      return result;
+    } catch (error) {
+      console.error('❌ Failed to bulk mark notifications:', error);
+      
+      // Fallback: Update each notification individually
+      if (error.message.includes('404') || error.message.includes('Route not found')) {
+        console.warn('⚠️ Bulk endpoint not available, falling back to individual updates');
+        const promises = notificationIds.map(id => 
+          this.updateNotification(id, { isRead, read: isRead })
+        );
+        await Promise.all(promises);
+        return {
+          success: true,
+          message: `Marked ${notificationIds.length} notifications as ${isRead ? 'read' : 'unread'} (fallback)`,
+          updatedCount: notificationIds.length
+        };
+      }
+      
+      throw error;
+    }
+  }
+
+  // NEW: Advanced search
+  async searchNotifications(searchParams = {}) {
+    try {
+      const queryString = new URLSearchParams(searchParams).toString();
+      const response = await this.request(`/api/notifications/search/advanced?${queryString}`, {
+        skipCache: true
+      });
+      
+      if (response && response.success && Array.isArray(response.notifications)) {
+        return response.notifications;
+      }
+      
+      // Fallback to basic search
+      console.warn('⚠️ Advanced search not available, falling back to basic search');
+      const allNotifications = await this.getNotifications();
+      const searchTerm = (searchParams.q || '').toLowerCase();
+      
+      return allNotifications.filter(notification => {
+        // Basic text search
+        const fieldsToSearch = [
+          notification.message,
+          notification.notif_message,
+          notification.fullName,
+          notification.location,
+          notification.data?.location_address,
+          notification.data?.seedlingName
+        ];
+        
+        return fieldsToSearch.some(field => 
+          field && field.toLowerCase().includes(searchTerm)
+        );
+      });
+    } catch (error) {
+      console.error('❌ Failed to search notifications:', error);
+      return [];
+    }
+  }
+
+  // Updated: Mark all as read for user
+  async markAllNotificationsAsRead(userId, type = null) {
+    try {
+      const result = await this.request('/api/notifications/actions/mark-all-read', {
+        method: 'PATCH',
+        body: { userId, type },
+        skipCache: true
+      });
+      
+      // Invalidate cache
+      this.invalidateCache('/api/notifications');
+      this.invalidateCache('/api/notifications/fetch/notifications-page');
+      
+      return result;
+    } catch (error) {
+      console.error('❌ Failed to mark all as read:', error);
+      
+      // Fallback: Get all user notifications and mark them individually
+      if (error.message.includes('404') || error.message.includes('Route not found')) {
+        console.warn('⚠️ Mark all endpoint not available, falling back to individual updates');
+        const notifications = await this.getNotifications({ userId });
+        const unreadNotifications = notifications.filter(n => 
+          (!type || n.type === type) && (!n.isRead && !n.read)
+        );
+        
+        if (unreadNotifications.length === 0) {
+          return {
+            success: true,
+            message: 'No unread notifications found',
+            updatedCount: 0
+          };
+        }
+        
+        const promises = unreadNotifications.map(n => 
+          this.updateNotification(n.id, { isRead: true, read: true })
+        );
+        await Promise.all(promises);
+        
+        return {
+          success: true,
+          message: `Marked ${unreadNotifications.length} notifications as read (fallback)`,
+          updatedCount: unreadNotifications.length
+        };
+      }
+      
+      throw error;
+    }
+  }
+
+  // Keep existing methods with improvements
   async createNotification(notificationData) {
     try {
       const result = await this.request('/api/notifications', {
         method: 'POST',
         body: notificationData,
+        skipCache: true
       });
       this.invalidateCache('/api/notifications');
+      this.invalidateCache('/api/notifications/fetch/notifications-page');
       return result;
     } catch (error) {
       // If endpoint doesn't exist (404), return mock success
@@ -407,21 +629,82 @@ class ApiService {
     }
   }
 
-  async updateNotification(id, notificationData) {
-    const result = await this.request(`/api/notifications/${id}`, {
-      method: 'PUT',
-      body: notificationData,
-    });
-    this.invalidateCache('/api/notifications');
-    return result;
+  // Updated: Support both PUT and PATCH
+  async updateNotification(id, notificationData, method = 'PATCH') {
+    try {
+      const result = await this.request(`/api/notifications/${id}`, {
+        method: method,
+        body: notificationData,
+        skipCache: true
+      });
+      this.invalidateCache('/api/notifications');
+      this.invalidateCache('/api/notifications/fetch/notifications-page');
+      return result;
+    } catch (error) {
+      console.error('❌ Failed to update notification:', error);
+      throw error;
+    }
   }
 
   async deleteNotification(id) {
-    const result = await this.request(`/api/notifications/${id}`, {
-      method: 'DELETE',
-    });
-    this.invalidateCache('/api/notifications');
-    return result;
+    try {
+      const result = await this.request(`/api/notifications/${id}`, {
+        method: 'DELETE',
+        skipCache: true
+      });
+      this.invalidateCache('/api/notifications');
+      this.invalidateCache('/api/notifications/fetch/notifications-page');
+      return result;
+    } catch (error) {
+      console.error('❌ Failed to delete notification:', error);
+      throw error;
+    }
+  }
+
+  // NEW: Mark single notification as read
+  async markNotificationAsRead(id, isRead = true) {
+    try {
+      const result = await this.request(`/api/notifications/${id}/read`, {
+        method: 'PATCH',
+        body: { isRead },
+        skipCache: true
+      });
+      this.invalidateCache('/api/notifications');
+      this.invalidateCache('/api/notifications/fetch/notifications-page');
+      return result;
+    } catch (error) {
+      console.error('❌ Failed to mark notification as read:', error);
+      
+      // Fallback: Use updateNotification
+      if (error.message.includes('404') || error.message.includes('Route not found')) {
+        console.warn('⚠️ Mark as read endpoint not available, using update instead');
+        return this.updateNotification(id, { isRead, read: isRead });
+      }
+      
+      throw error;
+    }
+  }
+
+  // NEW: Get notifications for specific user (enhanced version)
+  async getUserNotifications(userId, params = {}) {
+    try {
+      const queryString = new URLSearchParams({ ...params, userId }).toString();
+      const response = await this.request(`/api/notifications/user/${userId}?${queryString}`, {
+        skipCache: true
+      });
+      
+      if (response && response.success && Array.isArray(response.notifications)) {
+        return response.notifications;
+      }
+      
+      // Fallback: Filter from all notifications
+      console.warn('⚠️ User notifications endpoint not available, filtering from all');
+      const allNotifications = await this.getNotifications();
+      return allNotifications.filter(n => n.userId === userId);
+    } catch (error) {
+      console.error('❌ Failed to get user notifications:', error);
+      return [];
+    }
   }
 
   // ========== LOCATIONS ==========
