@@ -307,7 +307,7 @@ const fetchNotifications = async () => {
           id: id || `temp-${Date.now()}-${Math.random()}`,
           notificationId: notification.notificationId || notification.id || id,
           type: type,
-          title: notification.title || (type === 'request_submitted' ? 'Request Submitted' : 'Planting Completed'),
+          title: notification.title || (type === 'request_submitted' ? 'Planting Request' : 'Planting Completed'),
           message: notification.message || notification.notif_message || '',
           fullName: notification.fullName || userData.fullName || 'Unknown User',
           userEmail: userData.email,
@@ -597,7 +597,36 @@ const NotificationPanel = () => {
   const requestSubmittedCount = sortedNotifications.filter(n => n.type === 'request_submitted').length;
   const donePlantingCount = sortedNotifications.filter(n => n.type === 'done_planting').length;
 
-  const NotificationRow = ({ item }) => (
+  const NotificationRow = ({ item }) => {
+  // Helper function to get the appropriate message with more context
+  const getNotificationMessage = (type, fullName, location, additionalData) => {
+    const planterName = fullName || 'Planter';
+    const locationName = location || 'this site';
+    
+    switch(type) {
+      case 'request_submitted':
+        return `${planterName} wants to request a planting tree on ${locationName}`;
+      case 'done_planting':
+        return `${planterName} has completed planting at ${locationName}`;
+      case 'assigned_seedlings':
+        const seedlingName = additionalData?.seedlingName || 'seedlings';
+        return `${planterName} has been assigned ${seedlingName} for planting at ${locationName}`;
+      case 'request_approved':
+        return `${planterName}'s planting request has been approved for ${locationName}`;
+      case 'request_rejected':
+        return `${planterName}'s planting request has been rejected for ${locationName}`;
+      case 'planting_scheduled':
+        return `Planting has been scheduled for ${planterName} at ${locationName}`;
+      case 'planting_completed':
+        return `Planting completed successfully at ${locationName}`;
+      case 'task_assigned':
+        return `${planterName} has been assigned a task at ${locationName}`;
+      default:
+        return `${planterName} completed an action at ${locationName}`;
+    }
+  };
+
+  return (
     <Paper 
       sx={{ 
         p: 2.5, 
@@ -710,7 +739,12 @@ const NotificationPanel = () => {
               fontWeight: item.isRead ? 400 : 500
             }}
           >
-            {item.message}
+            {getNotificationMessage(
+              item.type, 
+              item.fullName, 
+              item.location,
+              item.additionalData || item.data
+            )}
           </Typography>
           
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
@@ -732,6 +766,7 @@ const NotificationPanel = () => {
       </Box>
     </Paper>
   );
+};
 
   const EmptyState = ({ icon: Icon, title, description }) => (
     <Paper sx={{ textAlign: 'center', p: 6, borderRadius: 2 }}>
@@ -756,6 +791,494 @@ const NotificationPanel = () => {
   };
 
   const currentItems = getCurrentItems();
+
+  // Component for Done Planting Details with enhanced data fetching
+const DonePlantingDetails = ({ item }) => {
+  const [planterDetails, setPlanterDetails] = useState(null);
+  const [seedlingRefs, setSeedlingRefs] = useState([]);
+  const [loadingDetails, setLoadingDetails] = useState(false);
+  const [fetchError, setFetchError] = useState(null);
+
+  // Helper function to extract document ID from a reference path
+  const extractDocumentId = (ref) => {
+    if (!ref) return null;
+    
+    // If it's a path like "collectionName/documentId", extract the documentId
+    if (ref.includes('/')) {
+      return ref.split('/').pop();
+    }
+    
+    // If it's already just an ID, return it
+    return ref;
+  };
+
+  // Fetch planter details and seedling references when component mounts
+  useEffect(() => {
+    const fetchDetails = async () => {
+      setLoadingDetails(true);
+      setFetchError(null);
+      
+      try {
+        console.log('🔍 Fetching details for done_planting notification:', {
+          itemId: item.id,
+          requestId: item.requestId,
+          plantingRecordRefs: item.plantingRecordRefs,
+          userId: item.userId
+        });
+
+        // 1. Fetch planter details - try multiple approaches
+        let planterName = 'Unknown User';
+        let planterEmail = 'N/A';
+        
+        // Approach 1: Try to fetch from plantingrequests collection using requestId
+        if (item.requestId) {
+          try {
+            console.log('📋 Attempting to fetch planting request with ID:', item.requestId);
+            
+            // Extract document ID from requestId if it's a path
+            const requestDocId = extractDocumentId(item.requestId);
+            console.log('📋 Extracted request document ID:', requestDocId);
+            
+            // Try different API methods
+            let plantingRequest = null;
+            
+            if (apiService.getPlantingRequest) {
+              plantingRequest = await apiService.getPlantingRequest(requestDocId);
+            } else if (apiService.getDocumentById && apiService.collections?.plantingrequests) {
+              // Alternative approach if API service has generic method
+              plantingRequest = await apiService.getDocumentById('plantingrequests', requestDocId);
+            } else if (apiService.getDocument) {
+              // Try generic getDocument method
+              plantingRequest = await apiService.getDocument('plantingrequests', requestDocId);
+            }
+            
+            if (plantingRequest) {
+              console.log('✅ Found planting request:', plantingRequest);
+              planterName = plantingRequest.fullName || plantingRequest.planterName || plantingRequest.name || planterName;
+              
+              // Try to get user email
+              if (plantingRequest.userRef) {
+                const userData = await fetchUserData(plantingRequest.userRef);
+                planterEmail = userData.email || planterEmail;
+              } else if (plantingRequest.userId) {
+                const userData = await fetchUserData(plantingRequest.userId);
+                planterEmail = userData.email || planterEmail;
+              } else if (plantingRequest.email) {
+                planterEmail = plantingRequest.email;
+              }
+            } else {
+              console.warn('⚠️ No planting request found for ID:', requestDocId);
+            }
+          } catch (error) {
+            console.warn('⚠️ Could not fetch planting request:', error.message);
+          }
+        }
+        
+        // Approach 2: If no requestId or couldn't fetch, try to get name from notification data
+        if (planterName === 'Unknown User' && item.fullName) {
+          planterName = item.fullName;
+          console.log('📋 Using name from notification:', planterName);
+        }
+        
+        // Approach 3: Try to get email from user data if we have userId
+        if (planterEmail === 'N/A' && item.userId) {
+          try {
+            const userData = await fetchUserData(item.userId);
+            planterEmail = userData.email || planterEmail;
+            console.log('📋 Using email from user data:', planterEmail);
+          } catch (error) {
+            console.warn('⚠️ Could not fetch user data for email:', error.message);
+          }
+        }
+
+        setPlanterDetails({
+          fullName: planterName,
+          email: planterEmail,
+          source: item.requestId ? 'plantingrequests collection' : 'notification data'
+        });
+
+        // 2. Fetch seedling references from plantingrecord collection
+        const seedlingRefsData = [];
+        if (item.plantingRecordRefs && item.plantingRecordRefs.length > 0) {
+          console.log(`🌱 Fetching seedling refs from ${item.plantingRecordRefs.length} planting records`);
+          
+          // Fetch each planting record and extract seedlingRef
+          const promises = item.plantingRecordRefs.map(async (recordRef, index) => {
+            try {
+              console.log(`🔍 Fetching planting record ${index + 1}:`, recordRef);
+              
+              // Extract document ID from reference
+              const recordId = extractDocumentId(recordRef);
+              console.log(`🔍 Extracted record ID:`, recordId);
+              
+              let plantingRecord = null;
+              
+              // Try different API methods in order
+              if (apiService.getPlantingRecord) {
+                plantingRecord = await apiService.getPlantingRecord(recordId);
+              } else if (apiService.getDocumentById && apiService.collections?.plantingrecords) {
+                plantingRecord = await apiService.getDocumentById('plantingrecords', recordId);
+              } else if (apiService.getDocument) {
+                plantingRecord = await apiService.getDocument('plantingrecords', recordId);
+              } else if (apiService.fetchDocument) {
+                plantingRecord = await apiService.fetchDocument('plantingrecords', recordId);
+              }
+              
+              if (plantingRecord) {
+                console.log(`✅ Found planting record ${index + 1}:`, plantingRecord);
+                
+                // Try different property names for seedlingRef - check the actual document structure
+                const seedlingRef = plantingRecord.seedlingRef || 
+                                   plantingRecord.seedling_id || 
+                                   plantingRecord.seedlingId ||
+                                   plantingRecord.seedlingReference ||
+                                   plantingRecord.seedling ||
+                                   plantingRecord.seedlingName;
+                
+                if (seedlingRef) {
+                  console.log(`✅ Found seedling ref:`, seedlingRef);
+                  return {
+                    recordId: recordRef,
+                    seedlingRef: seedlingRef,
+                    recordData: plantingRecord
+                  };
+                } else {
+                  console.warn(`⚠️ No seedlingRef found in planting record ${recordRef}`);
+                  console.warn(`⚠️ Available properties in planting record:`, Object.keys(plantingRecord));
+                  
+                  // Return partial info even if no seedlingRef found
+                  return {
+                    recordId: recordRef,
+                    seedlingRef: 'Not specified in record',
+                    recordData: plantingRecord,
+                    availableProperties: Object.keys(plantingRecord)
+                  };
+                }
+              } else {
+                console.warn(`⚠️ Could not fetch planting record ${recordId} - record may not exist`);
+              }
+            } catch (error) {
+              console.warn(`⚠️ Error fetching planting record ${recordRef}:`, error.message);
+              console.warn(`⚠️ Error details:`, error);
+              
+              // Return error info
+              return {
+                recordId: recordRef,
+                seedlingRef: `Error: ${error.message}`,
+                error: true,
+                errorDetails: error.message
+              };
+            }
+            return null;
+          });
+
+          const results = await Promise.all(promises);
+          const validResults = results.filter(item => item !== null);
+          
+          console.log(`✅ Found ${validResults.length} valid seedling refs out of ${results.length}`);
+          console.log(`📊 Seedling refs details:`, validResults);
+          setSeedlingRefs(validResults);
+        }
+
+      } catch (error) {
+        console.error('❌ Error fetching details:', error);
+        setFetchError(error.message);
+      } finally {
+        setLoadingDetails(false);
+      }
+    };
+
+    if (detailDialogOpen && item.type === 'done_planting') {
+      fetchDetails();
+    }
+  }, [detailDialogOpen, item]);
+
+  return (
+    <Stack spacing={3}>
+      <Box>
+        <Typography variant="subtitle1" fontWeight="600" gutterBottom>
+          <PersonIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5 }} />
+          Planter Information
+        </Typography>
+        <Card variant="outlined" sx={{ p: 2 }}>
+          <Stack spacing={2}>
+            <Box>
+              <Typography variant="caption" color="text.secondary" display="block">
+                Name
+              </Typography>
+              {loadingDetails ? (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <CircularProgress size={16} />
+                  <Typography variant="body2" color="text.secondary">
+                    Fetching from database...
+                  </Typography>
+                </Box>
+              ) : (
+                <>
+                  <Typography variant="body1" fontWeight="600">
+                    {planterDetails?.fullName || item.fullName || 'Unknown User'}
+                  </Typography>
+                  {planterDetails?.source && (
+                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem', mt: 0.5 }}>
+                      (Source: {planterDetails.source})
+                    </Typography>
+                  )}
+                </>
+              )}
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary" display="block">
+                Email
+              </Typography>
+              {loadingDetails ? (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <CircularProgress size={16} />
+                  <Typography variant="body2" color="text.secondary">
+                    Fetching...
+                  </Typography>
+                </Box>
+              ) : (
+                <>
+                  <Typography variant="body2">
+                    {planterDetails?.email || item.userEmail || 'No email'}
+                  </Typography>
+                  {fetchError && (
+                    <Typography variant="caption" color="error" sx={{ fontSize: '0.7rem', mt: 0.5 }}>
+                      Error: {fetchError}
+                    </Typography>
+                  )}
+                </>
+              )}
+            </Box>
+            
+            {/* Debug Information */}
+            <Box sx={{ mt: 1, p: 1, bgcolor: 'grey.50', borderRadius: 1, border: '1px dashed grey.300' }}>
+              <Typography variant="caption" color="text.secondary" display="block">
+                <strong>Debug Info:</strong>
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                Request ID: {item.requestId || 'Not available'}<br />
+                User ID: {item.userId || 'Not available'}<br />
+                Has name in notification: {!!item.fullName ? 'Yes' : 'No'}<br />
+                Planting Record Refs: {item.plantingRecordRefs?.length || 0}
+              </Typography>
+            </Box>
+          </Stack>
+        </Card>
+      </Box>
+
+      <Box>
+        <Typography variant="subtitle1" fontWeight="600" gutterBottom>
+          <ForestIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5, color: 'success.main' }} />
+          Planting Completion Details
+        </Typography>
+        <Card variant="outlined" sx={{ p: 2, bgcolor: 'rgba(46, 125, 50, 0.05)' }}>
+          <Stack spacing={2}>
+            <Box>
+              <Typography variant="caption" color="text.secondary" display="block">
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <AccessTimeIcon sx={{ fontSize: 14 }} />
+                  Completion Date & Time
+                </Box>
+              </Typography>
+              <Typography variant="body1" fontWeight="600">
+                {item.formatted_planting_datetime || extractDateTimeFromUTC8(item.timestamp)}
+              </Typography>
+            </Box>
+
+            <Box>
+              <Typography variant="caption" color="text.secondary" display="block">
+                Completion Date
+              </Typography>
+              <Typography variant="body1">
+                {item.formatted_planting_date || formatDisplayDate(item.timestamp)}
+              </Typography>
+            </Box>
+
+            <Box>
+              <Typography variant="caption" color="text.secondary" display="block">
+                Status
+              </Typography>
+              <Chip
+                label={item.status || 'completed'}
+                color="success"
+                size="small"
+                sx={{ fontWeight: 600 }}
+              />
+            </Box>
+          </Stack>
+        </Card>
+      </Box>
+      
+      <Box>
+        <Typography variant="subtitle1" fontWeight="600" gutterBottom>
+          <LocationOnIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5 }} />
+          Planting Location
+        </Typography>
+        <Card variant="outlined" sx={{ p: 2 }}>
+          <Typography variant="body1" fontWeight="600">
+            {item.location || 'Unknown Location'}
+          </Typography>
+        </Card>
+      </Box>
+
+      {/* References Section */}
+      {(item.taskRef || item.plantingRecordRefs?.length > 0) && (
+        <Box>
+          <Typography variant="subtitle1" fontWeight="600" gutterBottom>
+            <AssignmentIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5, color: 'info.main' }} />
+            References
+          </Typography>
+          <Card variant="outlined" sx={{ p: 2, bgcolor: 'rgba(2, 136, 209, 0.05)' }}>
+            <Stack spacing={2}>
+              {item.taskRef && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Task Reference
+                  </Typography>
+                  <Typography variant="body2" fontFamily="monospace">
+                    {item.taskRef}
+                  </Typography>
+                </Box>
+              )}
+
+              {item.plantingRecordRefs && item.plantingRecordRefs.length > 0 && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Planting Record References ({item.plantingRecordRefs.length})
+                    {seedlingRefs.length > 0 && (
+                      <Typography variant="caption" color="success.main" sx={{ ml: 1 }}>
+                        • {seedlingRefs.length} seedling references found
+                      </Typography>
+                    )}
+                  </Typography>
+                  
+                  <Box sx={{ maxHeight: 200, overflowY: 'auto', mt: 1.5 }}>
+                    {loadingDetails ? (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <CircularProgress size={16} />
+                        <Typography variant="caption" color="text.secondary">
+                          Loading seedling references...
+                        </Typography>
+                      </Box>
+                    ) : (
+                      <Stack spacing={1}>
+                        {item.plantingRecordRefs.map((ref, index) => {
+                          const seedlingInfo = seedlingRefs.find(s => s.recordId === ref);
+                          return (
+                            <Paper 
+                              key={index} 
+                              variant="outlined" 
+                              sx={{ 
+                                p: 1.5, 
+                                bgcolor: seedlingInfo?.error ? 'rgba(244, 67, 54, 0.05)' : 
+                                       seedlingInfo?.seedlingRef !== 'Not specified in record' ? 'rgba(46, 125, 50, 0.05)' : 'background.paper',
+                                borderColor: seedlingInfo?.error ? 'error.light' :
+                                           seedlingInfo?.seedlingRef !== 'Not specified in record' ? 'success.light' : 'divider'
+                              }}
+                            >
+                              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                                <FiberManualRecordIcon sx={{ 
+                                  fontSize: 10, 
+                                  color: seedlingInfo?.error ? 'error.main' :
+                                         seedlingInfo?.seedlingRef !== 'Not specified in record' ? 'success.main' : 'text.secondary',
+                                  mt: 0.75 
+                                }} />
+                                <Box sx={{ flex: 1 }}>
+                                  <Typography variant="caption" color="text.secondary" display="block">
+                                    Record {index + 1}
+                                  </Typography>
+                                  <Typography variant="body2" fontFamily="monospace" sx={{ fontSize: '0.8rem', mb: 0.5 }}>
+                                    ID: {extractDocumentId(ref)}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                                    Full path: {ref}
+                                  </Typography>
+                                  
+                                  {seedlingInfo ? (
+                                    <>
+                                      {seedlingInfo.error ? (
+                                        <Box sx={{ 
+                                          display: 'flex', 
+                                          alignItems: 'center', 
+                                          gap: 0.5,
+                                          p: 0.5,
+                                          bgcolor: 'rgba(244, 67, 54, 0.1)',
+                                          borderRadius: 0.5,
+                                          mt: 0.5
+                                        }}>
+                                          <CancelIcon sx={{ fontSize: 12, color: 'error.main' }} />
+                                          <Typography variant="caption" color="error.main" fontWeight="600">
+                                            Error: {seedlingInfo.seedlingRef}
+                                          </Typography>
+                                        </Box>
+                                      ) : seedlingInfo.seedlingRef !== 'Not specified in record' ? (
+                                        <Box sx={{ 
+                                          display: 'flex', 
+                                          alignItems: 'center', 
+                                          gap: 0.5,
+                                          p: 0.5,
+                                          bgcolor: 'rgba(46, 125, 50, 0.1)',
+                                          borderRadius: 0.5,
+                                          mt: 0.5
+                                        }}>
+                                          <ForestIcon sx={{ fontSize: 12, color: 'success.main' }} />
+                                          <Typography variant="caption" color="success.main" fontWeight="600">
+                                            Seedling Ref: {seedlingInfo.seedlingRef}
+                                          </Typography>
+                                        </Box>
+                                      ) : (
+                                        <Box sx={{ 
+                                          display: 'flex', 
+                                          alignItems: 'center', 
+                                          gap: 0.5,
+                                          p: 0.5,
+                                          bgcolor: 'rgba(255, 152, 0, 0.1)',
+                                          borderRadius: 0.5,
+                                          mt: 0.5
+                                        }}>
+                                          <Typography variant="caption" color="warning.main" fontWeight="600">
+                                            ⚠️ {seedlingInfo.seedlingRef}
+                                          </Typography>
+                                          {seedlingInfo.availableProperties && (
+                                            <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                                              Available fields: {seedlingInfo.availableProperties.join(', ')}
+                                            </Typography>
+                                          )}
+                                        </Box>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                                      Loading or record not accessible
+                                    </Typography>
+                                  )}
+                                </Box>
+                              </Box>
+                            </Paper>
+                          );
+                        })}
+                      </Stack>
+                    )}
+                  </Box>
+                  
+                  <Box sx={{ mt: 2, p: 1.5, bgcolor: 'info.50', borderRadius: 1, border: '1px solid info.100' }}>
+                    <Typography variant="caption" color="text.secondary">
+                      <strong>How it works:</strong><br />
+                      1. Extracts ID from path (e.g., "tyOUeO6uIFNOqClCCPko" from "plantingrecords/tyOUeO6uIFNOqClCCPko")<br />
+                      2. Fetches planting record document using the extracted ID<br />
+                      3. Looks for seedling reference in the record (searches for: seedlingRef, seedling_id, seedlingId, etc.)
+                    </Typography>
+                  </Box>
+                </Box>
+              )}
+            </Stack>
+          </Card>
+        </Box>
+      )}
+    </Stack>
+  );
+};
 
   // Render details based on notification type
   const renderDetailsContent = (item) => {
@@ -837,182 +1360,7 @@ const NotificationPanel = () => {
         </Stack>
       );
     } else if (item.type === 'done_planting') {
-      return (
-        <Stack spacing={3}>
-          <Box>
-            <Typography variant="subtitle1" fontWeight="600" gutterBottom>
-              <ForestIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 0.5, color: 'success.main' }} />
-              Planting Completed
-            </Typography>
-            <Card variant="outlined" sx={{ p: 2, bgcolor: 'rgba(46, 125, 50, 0.05)' }}>
-              <Stack spacing={2}>
-                <Box>
-                  <Typography variant="caption" color="text.secondary" display="block">
-                    Message
-                  </Typography>
-                  <Paper elevation={0} sx={{ p: 1.5, bgcolor: 'grey.50', borderRadius: 1 }}>
-                    <Typography variant="body1">
-                      {item.message}
-                    </Typography>
-                  </Paper>
-                </Box>
-                
-                {/* Planter Information from Request */}
-                <Box>
-                  <Typography variant="subtitle2" fontWeight="600" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <PersonIcon sx={{ fontSize: 16 }} />
-                    Planter Information
-                  </Typography>
-                  <Card variant="outlined" sx={{ p: 1.5 }}>
-                    <Stack spacing={1}>
-                      <Box>
-                        <Typography variant="caption" color="text.secondary" display="block">
-                          Planter Name
-                        </Typography>
-                        {item.requestFullName ? (
-                          <Typography variant="body1" fontWeight="600">
-                            {item.requestFullName}
-                          </Typography>
-                        ) : item.requestId ? (
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Typography variant="body1" fontStyle="italic" color="text.secondary">
-                              Loading planter information...
-                            </Typography>
-                            <CircularProgress size={16} />
-                          </Box>
-                        ) : (
-                          <Typography variant="body2" color="text.secondary">
-                            Not available
-                          </Typography>
-                        )}
-                      </Box>
-                      
-                      <Box>
-                        <Typography variant="caption" color="text.secondary" display="block">
-                          Request ID
-                        </Typography>
-                        <Typography variant="body2" fontFamily="monospace">
-                          {item.requestId || 'N/A'}
-                        </Typography>
-                      </Box>
-                      
-                      {item.userId && (
-                        <Box>
-                          <Typography variant="caption" color="text.secondary" display="block">
-                            User ID
-                          </Typography>
-                          <Typography variant="body2" fontFamily="monospace">
-                            {item.userId}
-                          </Typography>
-                        </Box>
-                      )}
-                    </Stack>
-                  </Card>
-                </Box>
-
-                {/* Planting Details */}
-                <Box>
-                  <Typography variant="subtitle2" fontWeight="600" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <CalendarTodayIcon sx={{ fontSize: 16 }} />
-                    Planting Details
-                  </Typography>
-                  <Card variant="outlined" sx={{ p: 1.5 }}>
-                    <Stack spacing={1}>
-                      <Box>
-                        <Typography variant="caption" color="text.secondary" display="block">
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            <AccessTimeIcon sx={{ fontSize: 14 }} />
-                            Completion Date & Time
-                          </Box>
-                        </Typography>
-                        <Typography variant="body1" fontWeight="600">
-                          {item.formatted_planting_datetime || extractDateTimeFromUTC8(item.timestamp)}
-                        </Typography>
-                      </Box>
-
-                      <Box>
-                        <Typography variant="caption" color="text.secondary" display="block">
-                          Completion Date
-                        </Typography>
-                        <Typography variant="body1">
-                          {item.formatted_planting_date || formatDisplayDate(item.timestamp)}
-                        </Typography>
-                      </Box>
-
-                      <Box>
-                        <Typography variant="caption" color="text.secondary" display="block">
-                          Status
-                        </Typography>
-                        <Chip
-                          label={item.status || 'completed'}
-                          color="success"
-                          size="small"
-                          sx={{ fontWeight: 600 }}
-                        />
-                      </Box>
-                    </Stack>
-                  </Card>
-                </Box>
-
-                {/* Location */}
-                <Box>
-                  <Typography variant="subtitle2" fontWeight="600" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <LocationOnIcon sx={{ fontSize: 16 }} />
-                    Planting Location
-                  </Typography>
-                  <Card variant="outlined" sx={{ p: 1.5 }}>
-                    <Typography variant="body1" fontWeight="600">
-                      {item.location || 'Unknown Location'}
-                    </Typography>
-                  </Card>
-                </Box>
-
-                {/* References */}
-                {(item.taskRef || item.plantingRecordRefs?.length > 0) && (
-                  <Box>
-                    <Typography variant="subtitle2" fontWeight="600" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      <AssignmentIcon sx={{ fontSize: 16 }} />
-                      References
-                    </Typography>
-                    <Card variant="outlined" sx={{ p: 1.5 }}>
-                      <Stack spacing={1}>
-                        {item.taskRef && (
-                          <Box>
-                            <Typography variant="caption" color="text.secondary" display="block">
-                              Task Reference
-                            </Typography>
-                            <Typography variant="body2" fontFamily="monospace">
-                              {item.taskRef}
-                            </Typography>
-                          </Box>
-                        )}
-
-                        {item.plantingRecordRefs && item.plantingRecordRefs.length > 0 && (
-                          <Box>
-                            <Typography variant="caption" color="text.secondary" display="block">
-                              Planting Record References ({item.plantingRecordRefs.length})
-                            </Typography>
-                            <Box sx={{ maxHeight: 100, overflowY: 'auto', mt: 0.5 }}>
-                              {item.plantingRecordRefs.map((ref, index) => (
-                                <Box key={index} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
-                                  <FiberManualRecordIcon sx={{ fontSize: 8, color: 'text.secondary' }} />
-                                  <Typography variant="body2" fontFamily="monospace" sx={{ fontSize: '0.8rem' }}>
-                                    {ref}
-                                  </Typography>
-                                </Box>
-                              ))}
-                            </Box>
-                          </Box>
-                        )}
-                      </Stack>
-                    </Card>
-                  </Box>
-                )}
-              </Stack>
-            </Card>
-          </Box>
-        </Stack>
-      );
+      return <DonePlantingDetails item={item} />;
     }
 
     return null;
@@ -1053,7 +1401,7 @@ const NotificationPanel = () => {
                 Notifications Center
               </Typography>
               <Typography variant="body1" color="text.secondary">
-                View and manage request submissions and planting completions
+                View and manage planting requests and planting completions
               </Typography>
             </Box>
             <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
