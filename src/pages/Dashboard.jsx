@@ -261,237 +261,274 @@ function AdminDashboard() {
 
   // Fetch all dashboard data using API service
   const fetchDashboardData = async () => {
+  try {
+    setLoading(true);
+    
+    // 1. Fetch Users from all collections
+    let allUsers = [];
+    
+    // Fetch users from users collection (this may contain admins, stakeholders, etc.)
     try {
-      setLoading(true);
-      
-      // 1. Fetch Users from all collections
-      let allUsers = [];
-      
-      // Fetch users from users collection (this may contain admins, stakeholders, etc.)
-      try {
-        const usersData = await apiService.getUsers();
-        allUsers = [...usersData];
-      } catch (error) {
-        console.warn('Error fetching users collection:', error);
-      }
-
-      // Calculate user breakdown by role/collection
-      const userBreakdown = allUsers.reduce((acc, userData) => {
-        acc.total++;
-        
-        // Determine role from roleRef or organization
-        let userRole = 'unknown';
-        
-        if (userData.roleRef) {
-          // Extract role from roleRef path (e.g., "/roles/admin" -> "admin")
-          const roleMatch = userData.roleRef.match(/\/roles\/(.+)$/);
-          if (roleMatch) {
-            userRole = roleMatch[1].toLowerCase();
-          }
-        } else if (userData.role_id || userData.roles || userData.role) {
-          userRole = (userData.role_id || userData.roles || userData.role).toLowerCase();
-        } else if (userData.organization) {
-          // Use organization to infer role if roleRef is missing
-          userRole = userData.organization.toLowerCase();
-        } else if (userData.userId && !userData.roleRef) {
-          // Users with userId but no roleRef are likely planters (from mobile app)
-          userRole = 'planter';
-        }
-        
-        // Categorize users
-        if (userRole.includes('admin')) {
-          acc.admins++;
-        } else if (userRole.includes('denr') || userRole.includes('stakeholder')) {
-          acc.denrStaff++;
-        } else if (userRole.includes('field') || userRole.includes('planter') || userData.userId) {
-          // Count users with userId as field users (planters from mobile app)
-          acc.fieldUsers++;
-        }
-        
-        return acc;
-      }, { total: 0, admins: 0, fieldUsers: 0, denrStaff: 0 });
-
-      // 2. Fetch ALL Planting Requests
-      const allRequests = await apiService.getPlantingRequests();
-
-      // Map all requests with user data - UPDATED LOCATION RESOLUTION
-      const requestsWithUserData = await Promise.all(
-        allRequests.map(async (request) => {
-          let requesterName = 'Unknown User';
-          let locationName = 'Not specified';
-          
-          // Prioritize fullName field over userRef lookup
-          if (request.fullName) {
-            requesterName = request.fullName;
-          } else if (request.userRef) {
-            // Only fetch from userRef if fullName is not available
-            try {
-              const userInfo = await resolveUserRef(request.userRef);
-              requesterName = userInfo.name;
-            } catch (err) {
-              console.error('Error fetching user:', err);
-            }
-          } else if (request.userId) {
-            try {
-              const userData = await apiService.getUser(request.userId);
-              requesterName = `${userData.firstName || userData.user_firstname || ''} ${userData.user_lastname || userData.lastName || ''}`.trim() || 'Unknown User';
-            } catch (err) {
-              console.error('Error fetching user:', err);
-            }
-          }
-
-          // Get location - prioritize location_address, then location field
-          if (request.location_address) {
-            locationName = request.location_address;
-          } else if (request.location) {
-            locationName = request.location;
-          } else if (request.locationRef) {
-            try {
-              const locationInfo = await resolveLocationRef(request.locationRef);
-              locationName = locationInfo.name;
-            } catch (err) {
-              console.error('Error fetching location:', err);
-            }
-          } else if (request.locationId) {
-            locationName = request.locationId;
-          }
-
-          // Format preferred date properly
-          let formattedDate = 'Not specified';
-          if (request.preferred_date) {
-            try {
-              // Handle both timestamp and string date formats
-              if (typeof request.preferred_date === 'string') {
-                const date = new Date(request.preferred_date);
-                formattedDate = date.toLocaleDateString('en-US', { 
-                  year: 'numeric', 
-                  month: 'short', 
-                  day: 'numeric' 
-                });
-              } else if (request.preferred_date.toDate) {
-                // Firestore timestamp
-                formattedDate = request.preferred_date.toDate().toLocaleDateString('en-US', { 
-                  year: 'numeric', 
-                  month: 'short', 
-                  day: 'numeric' 
-                });
-              }
-            } catch (err) {
-              formattedDate = request.preferred_date;
-            }
-          }
-
-          return {
-            id: request.id,
-            requesterName,
-            type: 'Planting Request',
-            site: locationName,
-            date: request.request_date ? new Date(request.request_date) : new Date(),
-            preferredDate: formattedDate,
-            remarks: request.request_notes || request.request_remarks || '-',
-            status: request.request_status || 'pending',
-            coordinates: {
-              lat: request.location_lat,
-              lng: request.location_lng
-            },
-            ...request
-          };
-        })
-      );
-
-      // Filter only pending requests
-      const pendingRequests = requestsWithUserData.filter(req => 
-        (req.request_status || '').toLowerCase() === 'pending'
-      );
-      
-      // 3. Fetch Planting Records (completed plantings) - FIXED VERSION
-      const recordsResponse = await apiService.getPlantingRecords();
-
-      // FIX: Handle nested response structure for planting records
-      let recordsData = [];
-      if (recordsResponse && recordsResponse.success && Array.isArray(recordsResponse.data)) {
-        recordsData = recordsResponse.data;
-        console.log(`✅ Extracted ${recordsData.length} planting records from nested response`);
-      } else if (Array.isArray(recordsResponse)) {
-        recordsData = recordsResponse;
-        console.log(`✅ Using ${recordsData.length} planting records directly`);
-      } else {
-        console.warn('⚠️ Unexpected response format for planting records:', recordsResponse);
-        recordsData = [];
-      }
-
-      // Count completed tasks from plantingrecords
-      const plantingTasks = {
-        active: 0,
-        completed: recordsData.length, // Use the extracted array
-        pending: 0,
-        cancelled: 0
-      };
-
-      // Fetch plantingtasks for pending/active/cancelled counts
-      try {
-        const tasksData = await apiService.getPlantingTasks();
-        
-        tasksData.forEach(taskData => {
-          const status = (taskData.task_status || '').toLowerCase();
-          
-          if (status === 'pending') plantingTasks.pending++;
-          else if (status === 'cancelled') plantingTasks.cancelled++;
-          else if (status === 'active') plantingTasks.active++;
-        });
-        
-      } catch (error) {
-        console.warn('plantingtasks collection not available:', error.message);
-      }
-
-      // 4. Fetch Planting Sites from locations collection
-      const locationsData = await apiService.getLocations();
-      const plantingSites = locationsData.map(location => {
-        return {
-          id: location.id,
-          name: location.location_name || 'Unnamed Location',
-          lat: parseFloat(location.location_latitude) || null,
-          lng: parseFloat(location.location_longitude) || null,
-          status: 'active',
-          ...location
-        };
-      }).filter(site => site.lat && site.lng && !isNaN(site.lat) && !isNaN(site.lng));
-
-      // 5. Fetch Sensor Locations
-      const sensors = await fetchSensorLocations();
-
-      // 6. Generate Monthly Requests Data (last 6 months)
-      const monthlyRequestsData = generateMonthlyData(requestsWithUserData);
-
-      // 7. Task distribution for pie chart
-      const taskDistribution = [
-        { name: 'Active', value: plantingTasks.active, color: COLORS[0] },
-        { name: 'Completed', value: plantingTasks.completed, color: COLORS[1] },
-        { name: 'Pending', value: plantingTasks.pending, color: COLORS[2] },
-        { name: 'Cancelled', value: plantingTasks.cancelled, color: COLORS[3] }
-      ].filter(item => item.value > 0);
-
-      setDashboardData({
-        users: userBreakdown,
-        pendingRequests,
-        plantingTasks,
-        plantingSites,
-        sensors,
-        monthlyRequestsData,
-        taskDistribution
-      });
-
+      const usersData = await apiService.getUsers();
+      allUsers = [...usersData];
     } catch (error) {
-      console.error('Error fetching dashboard data:', error);
-      setSnackbar({
-        open: true,
-        message: 'Error loading dashboard data: ' + error.message,
-        severity: 'error'
-      });
-    } finally {
-      setLoading(false);
+      console.warn('Error fetching users collection:', error);
     }
-  };
+
+    // Calculate user breakdown by role/collection
+    const userBreakdown = allUsers.reduce((acc, userData) => {
+      acc.total++;
+      
+      // Determine role from roleRef or organization
+      let userRole = 'unknown';
+      
+      if (userData.roleRef) {
+        // Extract role from roleRef path (e.g., "/roles/admin" -> "admin")
+        const roleMatch = userData.roleRef.match(/\/roles\/(.+)$/);
+        if (roleMatch) {
+          userRole = roleMatch[1].toLowerCase();
+        }
+      } else if (userData.role_id || userData.roles || userData.role) {
+        userRole = (userData.role_id || userData.roles || userData.role).toLowerCase();
+      } else if (userData.organization) {
+        // Use organization to infer role if roleRef is missing
+        userRole = userData.organization.toLowerCase();
+      } else if (userData.userId && !userData.roleRef) {
+        // Users with userId but no roleRef are likely planters (from mobile app)
+        userRole = 'planter';
+      }
+      
+      // Categorize users
+      if (userRole.includes('admin')) {
+        acc.admins++;
+      } else if (userRole.includes('denr') || userRole.includes('stakeholder')) {
+        acc.denrStaff++;
+      } else if (userRole.includes('field') || userRole.includes('planter') || userData.userId) {
+        // Count users with userId as field users (planters from mobile app)
+        acc.fieldUsers++;
+      }
+      
+      return acc;
+    }, { total: 0, admins: 0, fieldUsers: 0, denrStaff: 0 });
+
+    // 2. Fetch ALL Planting Requests
+    const allRequests = await apiService.getPlantingRequests();
+
+    // Map all requests with user data - UPDATED LOCATION RESOLUTION
+    const requestsWithUserData = await Promise.all(
+      allRequests.map(async (request) => {
+        let requesterName = 'Unknown User';
+        let locationName = 'Not specified';
+        
+        // Prioritize fullName field over userRef lookup
+        if (request.fullName) {
+          requesterName = request.fullName;
+        } else if (request.userRef) {
+          // Only fetch from userRef if fullName is not available
+          try {
+            const userInfo = await resolveUserRef(request.userRef);
+            requesterName = userInfo.name;
+          } catch (err) {
+            console.error('Error fetching user:', err);
+          }
+        } else if (request.userId) {
+          try {
+            const userData = await apiService.getUser(request.userId);
+            requesterName = `${userData.firstName || userData.user_firstname || ''} ${userData.user_lastname || userData.lastName || ''}`.trim() || 'Unknown User';
+          } catch (err) {
+            console.error('Error fetching user:', err);
+          }
+        }
+
+        // Get location - prioritize location_address, then location field
+        if (request.location_address) {
+          locationName = request.location_address;
+        } else if (request.location) {
+          locationName = request.location;
+        } else if (request.locationRef) {
+          try {
+            const locationInfo = await resolveLocationRef(request.locationRef);
+            locationName = locationInfo.name;
+          } catch (err) {
+            console.error('Error fetching location:', err);
+          }
+        } else if (request.locationId) {
+          locationName = request.locationId;
+        }
+
+        // Format preferred date properly
+        let formattedDate = 'Not specified';
+        if (request.preferred_date) {
+          try {
+            // Handle both timestamp and string date formats
+            if (typeof request.preferred_date === 'string') {
+              const date = new Date(request.preferred_date);
+              formattedDate = date.toLocaleDateString('en-US', { 
+                year: 'numeric', 
+                month: 'short', 
+                day: 'numeric' 
+              });
+            } else if (request.preferred_date.toDate) {
+              // Firestore timestamp
+              formattedDate = request.preferred_date.toDate().toLocaleDateString('en-US', { 
+                year: 'numeric', 
+                month: 'short', 
+                day: 'numeric' 
+              });
+            }
+          } catch (err) {
+            formattedDate = request.preferred_date;
+          }
+        }
+
+        return {
+          id: request.id,
+          requesterName,
+          type: 'Planting Request',
+          site: locationName,
+          date: request.request_date ? new Date(request.request_date) : new Date(),
+          preferredDate: formattedDate,
+          remarks: request.request_notes || request.request_remarks || '-',
+          status: request.request_status || 'pending',
+          coordinates: {
+            lat: request.location_lat,
+            lng: request.location_lng
+          },
+          ...request
+        };
+      })
+    );
+
+    // Filter only pending requests
+    const pendingRequests = requestsWithUserData.filter(req => 
+      (req.request_status || '').toLowerCase() === 'pending'
+    );
+    
+    // 3. Fetch Planting Records (completed plantings) - FIXED VERSION
+    const recordsResponse = await apiService.getPlantingRecords();
+
+    // FIX: Handle nested response structure for planting records
+    let recordsData = [];
+    if (recordsResponse && recordsResponse.success && Array.isArray(recordsResponse.data)) {
+      recordsData = recordsResponse.data;
+      console.log(`✅ Extracted ${recordsData.length} planting records from nested response`);
+    } else if (Array.isArray(recordsResponse)) {
+      recordsData = recordsResponse;
+      console.log(`✅ Using ${recordsData.length} planting records directly`);
+    } else {
+      console.warn('⚠️ Unexpected response format for planting records:', recordsResponse);
+      recordsData = [];
+    }
+
+    // Count completed tasks from plantingrecords
+    const plantingTasks = {
+      active: 0,
+      completed: recordsData.length, // Use the extracted array
+      pending: 0,
+      cancelled: 0
+    };
+
+    // Fetch plantingtasks for pending/active/cancelled counts
+    try {
+      const tasksData = await apiService.getPlantingTasks();
+      
+      tasksData.forEach(taskData => {
+        const status = (taskData.task_status || '').toLowerCase();
+        
+        if (status === 'pending') plantingTasks.pending++;
+        else if (status === 'cancelled') plantingTasks.cancelled++;
+        else if (status === 'active') plantingTasks.active++;
+      });
+      
+    } catch (error) {
+      console.warn('plantingtasks collection not available:', error.message);
+    }
+
+    // 4. Get Planting Sites from various sources (FIXED - no getLocations dependency)
+    let plantingSites = [];
+
+    // Extract unique locations from planting requests that have coordinates
+    const uniqueLocations = {};
+    allRequests.forEach(request => {
+      if (request.location_lat && request.location_lng) {
+        const lat = parseFloat(request.location_lat);
+        const lng = parseFloat(request.location_lng);
+        
+        if (!isNaN(lat) && !isNaN(lng)) {
+          const key = `${lat.toFixed(6)}_${lng.toFixed(6)}`;
+          if (!uniqueLocations[key]) {
+            uniqueLocations[key] = {
+              id: `location-${Object.keys(uniqueLocations).length + 1}`,
+              name: request.location_address || request.location || `Site ${Object.keys(uniqueLocations).length + 1}`,
+              lat: lat,
+              lng: lng,
+              status: 'active'
+            };
+          }
+        }
+      }
+    });
+    
+    plantingSites = Object.values(uniqueLocations);
+    console.log(`✅ Extracted ${plantingSites.length} planting sites from requests`);
+
+    // 5. Fetch Sensor Locations
+    const sensors = await fetchSensorLocations();
+
+    // If no planting sites from requests, use sensor locations as fallback
+    if (plantingSites.length === 0 && sensors.length > 0) {
+      const sensorLocations = {};
+      sensors.forEach(sensor => {
+        if (sensor.lat && sensor.lng) {
+          const key = `${sensor.lat.toFixed(6)}_${sensor.lng.toFixed(6)}`;
+          if (!sensorLocations[key]) {
+            sensorLocations[key] = {
+              id: `sensor-loc-${Object.keys(sensorLocations).length + 1}`,
+              name: sensor.name || `Sensor Site ${Object.keys(sensorLocations).length + 1}`,
+              lat: sensor.lat,
+              lng: sensor.lng,
+              status: 'active'
+            };
+          }
+        }
+      });
+      
+      plantingSites = Object.values(sensorLocations);
+      console.log(`✅ Using ${plantingSites.length} sensor locations as planting sites`);
+    }
+
+    // 6. Generate Monthly Requests Data (last 6 months)
+    const monthlyRequestsData = generateMonthlyData(requestsWithUserData);
+
+    // 7. Task distribution for pie chart
+    const taskDistribution = [
+      { name: 'Active', value: plantingTasks.active, color: COLORS[0] },
+      { name: 'Completed', value: plantingTasks.completed, color: COLORS[1] },
+      { name: 'Pending', value: plantingTasks.pending, color: COLORS[2] },
+      { name: 'Cancelled', value: plantingTasks.cancelled, color: COLORS[3] }
+    ].filter(item => item.value > 0);
+
+    setDashboardData({
+      users: userBreakdown,
+      pendingRequests,
+      plantingTasks,
+      plantingSites,
+      sensors,
+      monthlyRequestsData,
+      taskDistribution
+    });
+
+  } catch (error) {
+    console.error('Error fetching dashboard data:', error);
+    setSnackbar({
+      open: true,
+      message: 'Error loading dashboard data: ' + error.message,
+      severity: 'error'
+    });
+  } finally {
+    setLoading(false);
+  }
+};
 
   // Generate monthly data for charts
   const generateMonthlyData = (requests) => {
