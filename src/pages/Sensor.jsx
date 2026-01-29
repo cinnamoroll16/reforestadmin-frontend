@@ -75,23 +75,53 @@ const BACKEND_CONFIG = {
 };
 
 // ============================================================================
-// VALIDATION SCHEMA
+// VALIDATION SCHEMA - ENHANCED
 // ============================================================================
 const SensorDataSchema = {
-  pH: { min: 0, max: 14, required: true, optimal: [6.0, 8.0] },
-  soilMoisture: { min: 0, max: 100, required: true, optimal: [30, 70] },
-  temperature: { min: -10, max: 60, required: true, optimal: [20, 35] }
+  pH: { 
+    min: 0, 
+    max: 14, 
+    required: true, 
+    optimal: [6.0, 8.0],
+    criticalLow: 4.0,    // Critical thresholds
+    criticalHigh: 10.0,
+    criticalMessage: {
+      low: 'pH is critically low (extremely acidic). This may indicate sensor error.',
+      high: 'pH is critically high (extremely alkaline). This may indicate sensor error.'
+    }
+  },
+  soilMoisture: { 
+    min: 0, 
+    max: 100, 
+    required: true, 
+    optimal: [30, 70],
+    criticalLow: 5.0,
+    criticalHigh: 95.0,
+    criticalMessage: {
+      low: 'Soil moisture is critically low. Plants may be severely stressed.',
+      high: 'Soil moisture is critically high. Risk of waterlogging.'
+    }
+  },
+  temperature: { 
+    min: -10, 
+    max: 60, 
+    required: true, 
+    optimal: [20, 35],
+    criticalLow: 0,
+    criticalHigh: 50,
+    criticalMessage: {
+      low: 'Temperature is critically low. Risk of frost damage.',
+      high: 'Temperature is critically high. Risk of heat stress.'
+    }
+  }
 };
 
-// ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
-
-// Enhanced validation with warnings - FIXED VERSION
+// Enhanced validation with warnings and critical alerts - FIXED VERSION
 const validateSensorData = (sensorData) => {
   const { pH, soilMoisture, temperature } = sensorData;
   const errors = [];
   const warnings = [];
+  const criticalAlerts = [];
   
   // Check for "N/A" values
   const hasNAValues = pH === "N/A" || soilMoisture === "N/A" || temperature === "N/A";
@@ -122,8 +152,25 @@ const validateSensorData = (sensorData) => {
       return;
     }
     
+    // Check for critical values
+    if (rules.criticalLow !== undefined && numValue < rules.criticalLow) {
+      criticalAlerts.push({
+        field,
+        value: numValue,
+        type: 'critical_low',
+        message: rules.criticalMessage.low
+      });
+    } else if (rules.criticalHigh !== undefined && numValue > rules.criticalHigh) {
+      criticalAlerts.push({
+        field,
+        value: numValue,
+        type: 'critical_high',
+        message: rules.criticalMessage.high
+      });
+    }
+    
     // Check optimal range for warnings only - not errors
-    if (rules.optimal) {
+    if (rules.optimal && !criticalAlerts.some(alert => alert.field === field)) {
       const [optMin, optMax] = rules.optimal;
       if (numValue < optMin || numValue > optMax) {
         warnings.push(`${field} (${numValue}) is outside optimal range (${optMin}-${optMax})`);
@@ -135,16 +182,22 @@ const validateSensorData = (sensorData) => {
     isValid: errors.length === 0, 
     errors, 
     warnings,
+    criticalAlerts,
+    hasCriticalAlerts: criticalAlerts.length > 0,
     hasWarnings: warnings.length > 0
   };
 };
 
-// Backend ML API service
 const backendMLService = {
   // Generate ML recommendations via backend
   async generateRecommendations(sensorId, sensorData, location, coordinates) {
     try {
-      console.log('🤖 Sending ML request to backend:', { sensorId, sensorData, location, coordinates });
+      console.log('🤖 Sending ML request to backend:', { 
+        sensorId, 
+        sensorData, 
+        location, 
+        coordinates 
+      });
       
       const response = await fetch(`${BACKEND_CONFIG.BASE_URL}${BACKEND_CONFIG.ENDPOINTS.ML_RECOMMENDATIONS}`, {
         method: 'POST',
@@ -160,13 +213,17 @@ const backendMLService = {
       });
 
       const responseText = await response.text();
-      console.log('📄 Raw response:', responseText);
+      console.log('📄 Raw response text:', responseText);
+      console.log('📊 Response status:', response.status);
+      console.log('🔤 Response headers:', Object.fromEntries(response.headers.entries()));
 
       let result;
       try {
         result = JSON.parse(responseText);
+        console.log('✅ Parsed JSON response:', result);
       } catch (parseError) {
         console.error('Failed to parse JSON:', parseError);
+        console.error('Response text that failed to parse:', responseText);
         throw new Error(`Invalid JSON response: ${responseText.substring(0, 100)}...`);
       }
 
@@ -174,20 +231,26 @@ const backendMLService = {
         console.error('❌ Backend error response:', result);
         throw new Error(result.message || result.error || `HTTP error! status: ${response.status}`);
       }
-
-      console.log('✅ Backend ML response:', result);
       
-      // Ensure the response has the expected structure
-      if (!result.success && !result.recommendations) {
-        console.warn('⚠️ Unexpected response structure:', result);
-        // Try to normalize the response
-        if (Array.isArray(result)) {
-          result = { success: true, recommendations: result };
-        } else if (result.predictions) {
-          result = { success: true, recommendations: result.predictions };
-        }
+// TEMPORARY FIX: Handle "Needs Review" response
+if (result.message && result.message.includes('Needs Review')) {
+  console.warn('⚠️ Backend returned "Needs Review" - creating mock recommendations');
+  // Create mock recommendations for testing
+  result = {
+    success: true,
+    recommendations: [
+      {
+        commonName: 'Needs Review - Sensor Data Issue',
+        scientific_name: 'Sensor Calibration Required',
+        confidenceScore: 0.1,
+        reason: result.message,
+        requires_action: true
       }
-      
+    ]
+  };
+}
+
+console.log('✅ Backend ML response:', result);
       return result;
       
     } catch (error) {
@@ -1035,119 +1098,226 @@ function Sensors() {
   };
 
   // ============================================================================
-  // BACKEND ML GENERATION - FIXED VALIDATION
-  // ============================================================================
-  const handleGenerateML = async (sensor) => {
-    const sensorId = sensor.id;
+// BACKEND ML GENERATION - FIXED FOR CRITICAL VALUES
+// ============================================================================
+const handleGenerateML = async (sensor) => {
+  const sensorId = sensor.id;
+  
+  try {
+    setProcessingMLSensor(sensorId);
+    setMlProgress({ step: 'Initializing...', percent: 10 });
     
-    try {
-      setProcessingMLSensor(sensorId);
-      setMlProgress({ step: 'Initializing...', percent: 10 });
+    const { pH, soilMoisture, temperature } = sensor;
+    
+    setMlProgress({ step: 'Validating sensor data...', percent: 20 });
+    
+    const validation = validateSensorData({ pH, soilMoisture, temperature });
+    
+    // Check for critical alerts FIRST
+    if (validation.hasCriticalAlerts) {
+      const criticalMessages = validation.criticalAlerts.map(alert => 
+        `${alert.field}=${alert.value}: ${alert.message}`
+      ).join(', ');
       
-      const { pH, soilMoisture, temperature } = sensor;
-      
-      setMlProgress({ step: 'Validating sensor data...', percent: 20 });
-      
-      const validation = validateSensorData({ pH, soilMoisture, temperature });
-      
-      if (!validation.isValid) {
-        throw new Error(`Invalid sensor data: ${validation.errors.join(', ')}`);
-      }
-      
-      // Show warnings but don't prevent ML generation
-      if (validation.hasWarnings) {
-        showNotification(
-          `Data warnings (ML will still run): ${validation.warnings.join('; ')}`,
-          'warning'
-        );
-      }
-      
-      setMlProgress({ step: 'Preparing data for ML processing...', percent: 30 });
-      
-      const sensorData = {
-        ph: parseFloat(pH),
-        soilMoisture: parseFloat(soilMoisture),
-        temperature: parseFloat(temperature)
-      };
-      
-      setMlProgress({ step: 'Sending to ML backend...', percent: 50 });
-      
-      const result = await backendMLService.generateRecommendations(
-        sensorId,
-        sensorData,
-        sensor.location,
-        sensor.coordinates
-      );
-      
-      // DEBUG: Log the full response
-      console.log('🔍 ML Response:', result);
-      
-      if (!result.success) {
-        throw new Error(result.error || result.message || 'Backend ML processing failed');
-      }
-      
-      // Check if recommendations exist and have expected structure
-      if (!result.recommendations || !Array.isArray(result.recommendations) || result.recommendations.length === 0) {
-        throw new Error('No recommendations returned from ML service');
-      }
-      
-      const topTree = result.recommendations[0];
-      
-      // Check if topTree has expected properties
-      if (!topTree) {
-        throw new Error('First recommendation is empty');
-      }
-      
-      const treeName = topTree.commonName || topTree.name || topTree.species || topTree.tree_name || 'Unknown tree';
-      const confidenceScore = topTree.confidenceScore || topTree.score || topTree.probability || topTree.confidence || 0;
-      
-      setMlProgress({ step: 'Complete!', percent: 100 });
-
       showNotification(
-        `✅ ML Complete! Top recommendation: ${treeName} (${(confidenceScore * 100).toFixed(1)}% confidence)`,
-        'success'
+        `⚠️ Critical values detected: ${criticalMessages}. ML recommendations may not be reliable.`,
+        'warning'
       );
-
-      // Store the result in localStorage or state to pass to recommendations page
+      
+      // Ask user for confirmation to proceed
+      if (!window.confirm(
+        `Critical sensor values detected:\n\n${criticalMessages}\n\n` +
+        `ML recommendations may not be reliable.\n\n` +
+        `Do you want to proceed anyway?`
+      )) {
+        throw new Error('ML generation cancelled due to critical sensor values');
+      }
+    }
+    
+    if (!validation.isValid) {
+      throw new Error(`Invalid sensor data: ${validation.errors.join(', ')}`);
+    }
+    
+    // Show warnings but don't prevent ML generation
+    if (validation.hasWarnings) {
+      showNotification(
+        `Data warnings (ML will still run): ${validation.warnings.join('; ')}`,
+        'warning'
+      );
+    }
+    
+    setMlProgress({ step: 'Preparing data for ML processing...', percent: 30 });
+    
+    const sensorData = {
+      ph: parseFloat(pH),
+      soilMoisture: parseFloat(soilMoisture),
+      temperature: parseFloat(temperature)
+    };
+    
+    setMlProgress({ step: 'Sending to ML backend...', percent: 50 });
+    
+    const result = await backendMLService.generateRecommendations(
+      sensorId,
+      sensorData,
+      sensor.location,
+      sensor.coordinates
+    );
+    
+    // DEBUG: Log the full response
+    console.log('🔍 ML Response:', result);
+    
+    // FIXED: Handle different response structures including "Needs Review"
+    let recommendations = [];
+    let success = false;
+    let hasErrorRecommendation = false;
+    let errorMessage = '';
+    
+    if (result.success) {
+      // Case 1: Standard response with success and recommendations
+      success = true;
+      recommendations = result.recommendations || [];
+    } else if (Array.isArray(result)) {
+      // Case 2: Direct array response
+      success = true;
+      recommendations = result;
+    } else if (result.recommendations) {
+      // Case 3: Has recommendations field but no success flag
+      success = true;
+      recommendations = result.recommendations;
+    } else if (result.predictions) {
+      // Case 4: Has predictions field instead
+      success = true;
+      recommendations = result.predictions;
+    } else if (result.tree_suggestions) {
+      // Case 5: Has tree_suggestions field
+      success = true;
+      recommendations = result.tree_suggestions;
+    } else if (result.error) {
+      // Case 6: Error response
+      errorMessage = result.error;
+      hasErrorRecommendation = true;
+    } else if (result.message && result.message.includes('Needs Review')) {
+      // Case 7: "Needs Review" recommendation
+      success = true;
+      recommendations = [{
+        type: 'error',
+        message: result.message,
+        sensorData: sensorData,
+        timestamp: new Date().toISOString()
+      }];
+      hasErrorRecommendation = true;
+    }
+    
+    if (!success && !hasErrorRecommendation) {
+      throw new Error(result.error || result.message || 'Backend ML processing failed');
+    }
+    
+    // Check if recommendations exist or if we have an error recommendation
+    if (hasErrorRecommendation) {
+      showNotification(
+        `ML processing completed with note: ${errorMessage || recommendations[0]?.message}`,
+        'warning'
+      );
+      
+      // Store error result for display
       localStorage.setItem('lastMLResult', JSON.stringify({
         sensorId,
         sensorData,
-        recommendations: result.recommendations,
+        recommendations: recommendations,
+        hasError: true,
+        errorMessage: errorMessage || recommendations[0]?.message,
         timestamp: new Date().toISOString()
       }));
-
-      setTimeout(() => {
-        navigate('/recommendations');
-      }, 2000);
-
-    } catch (error) {
-      console.error('❌ ML Generation failed:', error);
+    } else if (!Array.isArray(recommendations) || recommendations.length === 0) {
+      throw new Error('No recommendations returned from ML service');
+    } else {
+      const topTree = recommendations[0];
       
-      let errorMessage = 'ML recommendation failed: ';
-      
-      if (error.message.includes('Invalid sensor data')) {
-        errorMessage += error.message;
-      } else if (error.message.includes('ML service unavailable')) {
-        errorMessage += 'ML service is unavailable. Please ensure the backend is running and dataset is loaded.';
-      } else if (error.message.includes('Dataset not loaded')) {
-        errorMessage += 'Dataset not loaded. Please upload a dataset file first.';
+      // Check if this is an error recommendation
+      if (topTree.type === 'error' || topTree.message?.includes('Needs Review')) {
+        showNotification(
+          `ML processing completed with note: ${topTree.message}`,
+          'warning'
+        );
+        
+        localStorage.setItem('lastMLResult', JSON.stringify({
+          sensorId,
+          sensorData,
+          recommendations: recommendations,
+          hasError: true,
+          errorMessage: topTree.message,
+          timestamp: new Date().toISOString()
+        }));
       } else {
-        errorMessage += error.message || 'Unknown error occurred.';
-      }
-      
-      showNotification(errorMessage, 'error');
-      
-      // DEBUG: Log additional info if available
-      if (error.response) {
-        console.error('Response error details:', error.response);
-      }
-      
-    } finally {
-      setProcessingMLSensor(null);
-      setMlProgress({ step: '', percent: 0 });
-    }
-  };
+        // Extract tree name from various possible fields
+        const treeName = topTree.commonName || 
+                        topTree.name || 
+                        topTree.species || 
+                        topTree.tree_name || 
+                        topTree.treeName ||
+                        topTree.scientific_name ||
+                        'Unknown tree';
+        
+        const confidenceScore = topTree.confidenceScore || 
+                              topTree.score || 
+                              topTree.probability || 
+                              topTree.confidence || 
+                              topTree.match_percentage ||
+                              0;
+        
+        setMlProgress({ step: 'Complete!', percent: 100 });
 
+        showNotification(
+          `✅ ML Complete! Top recommendation: ${treeName} (${(confidenceScore * 100).toFixed(1)}% confidence)`,
+          'success'
+        );
+
+        // Store the result in localStorage or state to pass to recommendations page
+        localStorage.setItem('lastMLResult', JSON.stringify({
+          sensorId,
+          sensorData,
+          recommendations: recommendations,
+          timestamp: new Date().toISOString()
+        }));
+      }
+    }
+
+    // Navigate to recommendations page regardless (it will handle error states)
+    setTimeout(() => {
+      navigate('/recommendations');
+    }, 2000);
+
+  } catch (error) {
+    console.error('❌ ML Generation failed:', error);
+    
+    let errorMessage = 'ML recommendation failed: ';
+    
+    if (error.message.includes('Invalid sensor data')) {
+      errorMessage += error.message;
+    } else if (error.message.includes('ML service unavailable')) {
+      errorMessage += 'ML service is unavailable. Please ensure the backend is running and dataset is loaded.';
+    } else if (error.message.includes('Dataset not loaded')) {
+      errorMessage += 'Dataset not loaded. Please upload a dataset file first.';
+    } else if (error.message.includes('No recommendations')) {
+      errorMessage += 'ML service returned empty results. Please check your dataset and sensor values.';
+    } else if (error.message.includes('cancelled')) {
+      errorMessage = 'ML generation was cancelled.';
+    } else {
+      errorMessage += error.message || 'Unknown error occurred.';
+    }
+    
+    showNotification(errorMessage, 'error');
+    
+    // DEBUG: Log additional info if available
+    if (error.response) {
+      console.error('Response error details:', error.response);
+    }
+    
+  } finally {
+    setProcessingMLSensor(null);
+    setMlProgress({ step: '', percent: 0 });
+  }
+};
   // ============================================================================
   // EVENT HANDLERS
   // ============================================================================
