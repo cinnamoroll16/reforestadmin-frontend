@@ -96,6 +96,8 @@ function Recommendations() {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
   const [saving, setSaving] = useState(false);
+  // ADD THIS STATE FOR RECENT ML RESULT
+  const [recentMLResult, setRecentMLResult] = useState(null);
   
   const navigate = useNavigate();
   const { user, logout } = useAuth();
@@ -105,6 +107,34 @@ function Recommendations() {
 
   const isLoadingRef = useRef(false);
 
+  // ============================================================================
+  // CHECK LOCALSTORAGE FOR RECENT ML RESULT
+  // ============================================================================
+  useEffect(() => {
+    const checkLocalStorage = () => {
+      const lastMLResult = localStorage.getItem('lastMLResult');
+      if (lastMLResult) {
+        try {
+          const result = JSON.parse(lastMLResult);
+          console.log('📦 Found ML result in localStorage:', result);
+          
+          // If this is a fresh result (less than 5 minutes old), store it
+          if (result.timestamp && Date.now() - new Date(result.timestamp).getTime() < 300000) {
+            // Result is less than 5 minutes old
+            console.log('🕒 Fresh ML result available');
+            setRecentMLResult(result);
+          }
+        } catch (e) {
+          console.error('Failed to parse localStorage ML result:', e);
+        }
+      } else {
+        console.log('📦 No ML result in localStorage');
+      }
+    };
+    
+    checkLocalStorage();
+  }, []);
+  
   const extractSensorId = (sensorDataRef) => {
     if (!sensorDataRef || sensorDataRef === 'N/A') {
       return 'N/A';
@@ -527,7 +557,7 @@ function Recommendations() {
     setDeleteDialogOpen(false);
     setRecoToDelete(null);
   };
-
+  
   // ============================================================================
   // USE EFFECTS
   // ============================================================================
@@ -609,6 +639,36 @@ function Recommendations() {
           {error && (
             <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }} onClose={() => setError(null)}>
               {error}
+            </Alert>
+          )}
+
+          {/* ADD THIS SECTION TO SHOW RECENT ML RESULT */}
+          {recentMLResult && (
+            <Alert 
+              severity={recentMLResult.hasError ? "error" : recentMLResult.hasManualReview ? "warning" : "success"}
+              sx={{ mb: 3, borderRadius: 2 }}
+              onClose={() => {
+                setRecentMLResult(null);
+                localStorage.removeItem('lastMLResult');
+              }}
+            >
+              <Typography variant="subtitle2" fontWeight="bold">
+                Recent ML Result - Sensor {recentMLResult.sensorId}
+              </Typography>
+              <Typography variant="body2">
+                {recentMLResult.hasError ? `Error: ${recentMLResult.errorMessage}` : 
+                 recentMLResult.hasManualReview ? `Review Needed: ${recentMLResult.recommendations[0]?.reason}` : 
+                 `Generated ${recentMLResult.recommendations?.length || 0} recommendation(s)`}
+              </Typography>
+              {recentMLResult.recommendations?.length > 0 && (
+                <Box sx={{ mt: 1 }}>
+                  <Typography variant="caption" fontWeight="bold">Top Recommendation:</Typography>
+                  <Typography variant="caption" display="block">
+                    {recentMLResult.recommendations[0]?.commonName || 'Unknown'} - 
+                    {((recentMLResult.recommendations[0]?.confidenceScore || 0) * 100).toFixed(1)}% confidence
+                  </Typography>
+                </Box>
+              )}
             </Alert>
           )}
 
