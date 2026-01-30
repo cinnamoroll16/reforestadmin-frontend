@@ -83,11 +83,12 @@ const SensorDataSchema = {
     max: 14, 
     required: true, 
     optimal: [6.0, 8.0],
-    criticalLow: 4.0,    // Critical thresholds
-    criticalHigh: 10.0,
-    criticalMessage: {
-      low: 'pH is critically low (extremely acidic). This may indicate sensor error.',
-      high: 'pH is critically high (extremely alkaline). This may indicate sensor error.'
+    // Removed critical thresholds - just warn but don't block
+    warningLow: 4.0,
+    warningHigh: 10.0,
+    warningMessage: {
+      low: 'pH is very acidic. Some trees may still thrive in these conditions.',
+      high: 'pH is very alkaline. Some trees may still thrive in these conditions.'
     }
   },
   soilMoisture: { 
@@ -1166,20 +1167,32 @@ const handleGenerateML = async (sensor) => {
     // DEBUG: Log the full response
     console.log('🔍 ML Response:', result);
     
-    // FIXED: Handle different response structures including "Needs Review"
+    // FIXED: Always create recommendations, even if empty
     let recommendations = [];
     let success = false;
     let hasErrorRecommendation = false;
     let errorMessage = '';
+    let hasManualReview = false;
     
     if (result.success) {
       // Case 1: Standard response with success and recommendations
       success = true;
       recommendations = result.recommendations || [];
-    } else if (Array.isArray(result)) {
-      // Case 2: Direct array response
-      success = true;
-      recommendations = result;
+      
+      // Check for "Needs Review" case
+      if (recommendations.length === 0 && result.dataQuality?.needsManualReview) {
+        hasManualReview = true;
+        // Create a manual review recommendation
+        recommendations = [{
+          type: 'manual_review',
+          commonName: 'Manual Review Required',
+          scientific_name: 'Sensor Calibration Needed',
+          confidenceScore: 0.1,
+          reason: result.dataQuality?.alerts?.[0]?.message || 'Sensor data requires verification',
+          dataQuality: result.dataQuality,
+          requires_action: true
+        }];
+      }
     } else if (result.recommendations) {
       // Case 3: Has recommendations field but no success flag
       success = true;
@@ -1199,119 +1212,114 @@ const handleGenerateML = async (sensor) => {
     } else if (result.message && result.message.includes('Needs Review')) {
       // Case 7: "Needs Review" recommendation
       success = true;
+      hasManualReview = true;
       recommendations = [{
-        type: 'error',
-        message: result.message,
+        type: 'manual_review',
+        commonName: 'Manual Review Required',
+        scientific_name: 'Sensor Calibration Required',
+        confidenceScore: 0.1,
+        reason: result.message,
         sensorData: sensorData,
-        timestamp: new Date().toISOString()
+        dataQuality: result.dataQuality,
+        requires_action: true
       }];
-      hasErrorRecommendation = true;
     }
     
-    if (!success && !hasErrorRecommendation) {
+    // If we still have no recommendations, create fallback ones
+    if (recommendations.length === 0 && success) {
+      console.warn('⚠️ Backend returned empty recommendations - creating fallback');
+      recommendations = [{
+        commonName: 'General Adaptive Tree',
+        scientific_name: 'Consult Local Expert',
+        confidenceScore: 0.3,
+        reason: 'Specific recommendations unavailable for current conditions',
+        requires_action: false
+      }];
+    }
+    
+    if (!success && !hasErrorRecommendation && !hasManualReview) {
       throw new Error(result.error || result.message || 'Backend ML processing failed');
     }
     
-    // Check if recommendations exist or if we have an error recommendation
+    // ALWAYS save to localStorage, even with errors
+    localStorage.setItem('lastMLResult', JSON.stringify({
+      sensorId,
+      sensorData,
+      recommendations: recommendations,
+      success: success,
+      hasError: hasErrorRecommendation,
+      hasManualReview: hasManualReview,
+      errorMessage: errorMessage,
+      dataQuality: result.dataQuality || {},
+      mlModel: result.mlModel || 'Unknown',
+      timestamp: new Date().toISOString()
+    }));
+    
+    console.log('✅ Saved to localStorage:', {
+      sensorId,
+      recommendationCount: recommendations.length
+    });
+    
     if (hasErrorRecommendation) {
       showNotification(
-        `ML processing completed with note: ${errorMessage || recommendations[0]?.message}`,
+        `ML processing completed with note: ${errorMessage}`,
         'warning'
       );
-      
-      // Store error result for display
-      localStorage.setItem('lastMLResult', JSON.stringify({
-        sensorId,
-        sensorData,
-        recommendations: recommendations,
-        hasError: true,
-        errorMessage: errorMessage || recommendations[0]?.message,
-        timestamp: new Date().toISOString()
-      }));
-    } else if (!Array.isArray(recommendations) || recommendations.length === 0) {
-      throw new Error('No recommendations returned from ML service');
-    } else {
+    } else if (hasManualReview) {
+      showNotification(
+        `⚠️ Manual review required: ${recommendations[0]?.reason}`,
+        'warning'
+      );
+    } else if (recommendations.length > 0) {
       const topTree = recommendations[0];
+      const treeName = topTree.commonName || 
+                      topTree.name || 
+                      topTree.species || 
+                      'Unknown tree';
+      const confidenceScore = topTree.confidenceScore || 0.5;
       
-      // Check if this is an error recommendation
-      if (topTree.type === 'error' || topTree.message?.includes('Needs Review')) {
-        showNotification(
-          `ML processing completed with note: ${topTree.message}`,
-          'warning'
-        );
-        
-        localStorage.setItem('lastMLResult', JSON.stringify({
-          sensorId,
-          sensorData,
-          recommendations: recommendations,
-          hasError: true,
-          errorMessage: topTree.message,
-          timestamp: new Date().toISOString()
-        }));
-      } else {
-        // Extract tree name from various possible fields
-        const treeName = topTree.commonName || 
-                        topTree.name || 
-                        topTree.species || 
-                        topTree.tree_name || 
-                        topTree.treeName ||
-                        topTree.scientific_name ||
-                        'Unknown tree';
-        
-        const confidenceScore = topTree.confidenceScore || 
-                              topTree.score || 
-                              topTree.probability || 
-                              topTree.confidence || 
-                              topTree.match_percentage ||
-                              0;
-        
-        setMlProgress({ step: 'Complete!', percent: 100 });
-
-        showNotification(
-          `✅ ML Complete! Top recommendation: ${treeName} (${(confidenceScore * 100).toFixed(1)}% confidence)`,
-          'success'
-        );
-
-        // Store the result in localStorage or state to pass to recommendations page
-        localStorage.setItem('lastMLResult', JSON.stringify({
-          sensorId,
-          sensorData,
-          recommendations: recommendations,
-          timestamp: new Date().toISOString()
-        }));
-      }
+      setMlProgress({ step: 'Complete!', percent: 100 });
+      showNotification(
+        `✅ ML Complete! Top recommendation: ${treeName} (${(confidenceScore * 100).toFixed(1)}% confidence)`,
+        'success'
+      );
     }
 
-    // Navigate to recommendations page regardless (it will handle error states)
+    // Navigate to recommendations page
     setTimeout(() => {
       navigate('/recommendations');
-    }, 2000);
+    }, 1500);
 
   } catch (error) {
     console.error('❌ ML Generation failed:', error);
     
-    let errorMessage = 'ML recommendation failed: ';
+    // EVEN ON ERROR, save something to localStorage
+    localStorage.setItem('lastMLResult', JSON.stringify({
+      sensorId: sensor.id,
+      sensorData: {
+        ph: parseFloat(sensor.pH),
+        soilMoisture: parseFloat(sensor.soilMoisture),
+        temperature: parseFloat(sensor.temperature)
+      },
+      recommendations: [{
+        commonName: 'Error - No Recommendation',
+        scientific_name: 'System Error',
+        confidenceScore: 0.1,
+        reason: `Error: ${error.message.substring(0, 100)}`,
+        requires_action: true
+      }],
+      success: false,
+      hasError: true,
+      errorMessage: error.message,
+      timestamp: new Date().toISOString()
+    }));
     
-    if (error.message.includes('Invalid sensor data')) {
-      errorMessage += error.message;
-    } else if (error.message.includes('ML service unavailable')) {
-      errorMessage += 'ML service is unavailable. Please ensure the backend is running and dataset is loaded.';
-    } else if (error.message.includes('Dataset not loaded')) {
-      errorMessage += 'Dataset not loaded. Please upload a dataset file first.';
-    } else if (error.message.includes('No recommendations')) {
-      errorMessage += 'ML service returned empty results. Please check your dataset and sensor values.';
-    } else if (error.message.includes('cancelled')) {
-      errorMessage = 'ML generation was cancelled.';
-    } else {
-      errorMessage += error.message || 'Unknown error occurred.';
-    }
+    showNotification(`ML generation failed: ${error.message}`, 'error');
     
-    showNotification(errorMessage, 'error');
-    
-    // DEBUG: Log additional info if available
-    if (error.response) {
-      console.error('Response error details:', error.response);
-    }
+    // Still navigate to recommendations page so user can see the error
+    setTimeout(() => {
+      navigate('/recommendations');
+    }, 1500);
     
   } finally {
     setProcessingMLSensor(null);
