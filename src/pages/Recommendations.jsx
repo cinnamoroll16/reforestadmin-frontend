@@ -1,4 +1,4 @@
-// src/pages/Recommendations.js - FULLY OPTIMIZED VERSION
+// src/pages/Recommendations.js - REAL-TIME UPDATED VERSION WITH API SERVICE INTEGRATION
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -7,9 +7,9 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableContainer,
-  TableHead,
   TableRow,
+  TableHead,
+  TableContainer,
   TablePagination,
   TextField,
   Typography,
@@ -34,7 +34,10 @@ import {
   Toolbar,
   Alert,
   Snackbar,
-  CircularProgress
+  CircularProgress,
+  Badge,
+  Switch,
+  FormControlLabel
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -42,7 +45,13 @@ import {
   PlayArrow as ExecuteIcon,
   TrendingUp as ConfidenceIcon,
   Science as AlgorithmIcon,
-  CheckCircle as CheckCircleIcon
+  CheckCircle as CheckCircleIcon,
+  NewReleases as NewReleasesIcon,
+  Refresh as RefreshIcon,
+  Notifications as NotificationsIcon,
+  FiberManualRecord as UnreadIcon,
+  Wifi as WifiIcon,
+  WifiOff as WifiOffIcon
 } from '@mui/icons-material';
 import { useTheme, useMediaQuery } from '@mui/material';
 import ReForestAppBar from './AppBar.jsx';
@@ -55,13 +64,15 @@ const drawerWidth = 240;
 // Enhanced cache manager
 const cacheManager = {
   cache: new Map(),
+  listeners: new Set(),
   
-  set(key, data, expiry = 300000) { // 5 minutes default
+  set(key, data, expiry = 300000) {
     this.cache.set(key, {
       data,
       expiry: Date.now() + expiry,
       timestamp: Date.now()
     });
+    this.notifyListeners(key, 'update');
   },
   
   get(key) {
@@ -70,6 +81,7 @@ const cacheManager = {
     
     if (Date.now() > cached.expiry) {
       this.cache.delete(key);
+      this.notifyListeners(key, 'expire');
       return null;
     }
     
@@ -78,6 +90,21 @@ const cacheManager = {
   
   clear() {
     this.cache.clear();
+    this.notifyListeners('all', 'clear');
+  },
+  
+  invalidate(key) {
+    this.cache.delete(key);
+    this.notifyListeners(key, 'invalidate');
+  },
+  
+  subscribe(listener) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  },
+  
+  notifyListeners(key, action) {
+    this.listeners.forEach(listener => listener(key, action));
   }
 };
 
@@ -96,8 +123,17 @@ function Recommendations() {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
   const [saving, setSaving] = useState(false);
-  // ADD THIS STATE FOR RECENT ML RESULT
   const [recentMLResult, setRecentMLResult] = useState(null);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [lastUpdate, setLastUpdate] = useState(null);
+  const [realTimeEnabled, setRealTimeEnabled] = useState(true);
+  const [wsConnected, setWsConnected] = useState(false);
+  const [stats, setStats] = useState({
+    total: 0,
+    approved: 0,
+    pending: 0,
+    new: 0
+  });
   
   const navigate = useNavigate();
   const { user, logout } = useAuth();
@@ -106,35 +142,276 @@ function Recommendations() {
   const handleDrawerToggle = () => setMobileOpen(!mobileOpen);
 
   const isLoadingRef = useRef(false);
+  const wsRef = useRef(null);
+  const lastPollRef = useRef(Date.now());
+  const newRecommendationsRef = useRef(new Set());
+  const reconnectTimeoutRef = useRef(null);
 
   // ============================================================================
-  // CHECK LOCALSTORAGE FOR RECENT ML RESULT
+  // REAL-TIME WEBSOCKET SETUP USING YOUR API BASE URL
   // ============================================================================
-  useEffect(() => {
-    const checkLocalStorage = () => {
-      const lastMLResult = localStorage.getItem('lastMLResult');
-      if (lastMLResult) {
+
+  const setupWebSocket = useCallback(() => {
+    if (!realTimeEnabled || !apiService.baseURL) {
+      console.log('WebSocket disabled or no API URL');
+      return;
+    }
+    
+    try {
+      // Close existing connection
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+      
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+
+      // Extract host from API base URL
+      let wsUrl;
+      try {
+        const url = new URL(apiService.baseURL);
+        const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+        wsUrl = `${protocol}//${url.host}/ws`;
+      } catch (e) {
+        // Fallback to default WebSocket URL
+        wsUrl = 'ws://localhost:5000/ws';
+      }
+
+      console.log(`🔗 Connecting to WebSocket: ${wsUrl}`);
+      const ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        console.log('✅ WebSocket connected');
+        setWsConnected(true);
+        
+        // Subscribe to recommendations updates
+        const subscribeMessage = {
+          type: 'subscribe',
+          channel: 'recommendations',
+          userId: user?.id
+        };
+        ws.send(JSON.stringify(subscribeMessage));
+      };
+
+      ws.onmessage = (event) => {
         try {
-          const result = JSON.parse(lastMLResult);
-          console.log('📦 Found ML result in localStorage:', result);
-          
-          // If this is a fresh result (less than 5 minutes old), store it
+          const data = JSON.parse(event.data);
+          console.log('📥 WebSocket message:', data.type);
+
+          switch (data.type) {
+            case 'recommendation_created':
+              handleNewRecommendation(data.payload);
+              break;
+            case 'recommendation_updated':
+              handleUpdatedRecommendation(data.payload);
+              break;
+            case 'recommendation_deleted':
+              handleDeletedRecommendation(data.payload);
+              break;
+            case 'ml_result_ready':
+              handleMLResult(data.payload);
+              break;
+            case 'heartbeat':
+              // Keep connection alive
+              ws.send(JSON.stringify({ type: 'heartbeat_ack' }));
+              break;
+            case 'connection_established':
+              console.log('✅ WebSocket connection established');
+              break;
+            default:
+              console.log('Unknown message type:', data.type);
+          }
+        } catch (error) {
+          console.error('Error processing WebSocket message:', error);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        setWsConnected(false);
+      };
+
+      ws.onclose = (event) => {
+        console.log('WebSocket disconnected:', event.code, event.reason);
+        setWsConnected(false);
+        
+        // Attempt reconnection after delay
+        if (realTimeEnabled) {
+          reconnectTimeoutRef.current = setTimeout(() => {
+            console.log('🔄 Attempting to reconnect WebSocket...');
+            setupWebSocket();
+          }, 5000);
+        }
+      };
+
+      wsRef.current = ws;
+    } catch (error) {
+      console.error('Failed to setup WebSocket:', error);
+      setWsConnected(false);
+    }
+  }, [realTimeEnabled, user?.id]);
+
+  // ============================================================================
+  // REAL-TIME HANDLERS
+  // ============================================================================
+
+  const handleNewRecommendation = useCallback((newReco) => {
+    console.log('🆕 New recommendation received:', newReco);
+    
+    const recoId = newReco.id || newReco.reco_id;
+    if (!recoId) return;
+    
+    // Add to new recommendations set
+    newRecommendationsRef.current.add(recoId);
+    
+    // Update unread count
+    setUnreadCount(prev => prev + 1);
+    
+    // Invalidate cache
+    apiService.invalidateCache('/api/recommendations');
+    cacheManager.invalidate('recommendations-list');
+    
+    // Refresh data with a short delay
+    setTimeout(() => {
+      loadRecommendations();
+    }, 1000);
+    
+    // Show notification
+    setSuccess(`New recommendation ${recoId} received!`);
+  }, []);
+
+  const handleUpdatedRecommendation = useCallback((updatedReco) => {
+    console.log('🔄 Recommendation updated:', updatedReco);
+    
+    const recoId = updatedReco.id || updatedReco.reco_id;
+    
+    // Update local state
+    setRecommendations(prev => prev.map(reco => 
+      reco.id === recoId || reco.reco_id === recoId
+        ? { 
+            ...reco, 
+            ...updatedReco, 
+            updatedAt: new Date().toISOString(),
+            // Update confidence score if provided
+            reco_confidenceScore: updatedReco.reco_confidenceScore || 
+                                 updatedReco.confidenceScore || 
+                                 reco.reco_confidenceScore,
+            // Update status if provided
+            status: updatedReco.status || generateStatus(updatedReco.reco_confidenceScore) || reco.status
+          }
+        : reco
+    ));
+    
+    // Invalidate cache
+    apiService.invalidateCache('/api/recommendations');
+    cacheManager.invalidate('recommendations-list');
+    cacheManager.invalidate(`recommendation-${recoId}`);
+  }, []);
+
+  const handleDeletedRecommendation = useCallback((deletedReco) => {
+    console.log('🗑️ Recommendation deleted:', deletedReco);
+    
+    const recoId = deletedReco.id || deletedReco.reco_id;
+    
+    // Update local state
+    setRecommendations(prev => prev.filter(reco => 
+      reco.id !== recoId && reco.reco_id !== recoId
+    ));
+    
+    // Remove from new recommendations if it was there
+    if (newRecommendationsRef.current.has(recoId)) {
+      newRecommendationsRef.current.delete(recoId);
+      setUnreadCount(prev => Math.max(0, prev - 1));
+    }
+    
+    // Invalidate cache
+    apiService.invalidateCache('/api/recommendations');
+    cacheManager.invalidate('recommendations-list');
+    
+    setSuccess(`Recommendation ${recoId} was deleted`);
+  }, []);
+
+  const handleMLResult = useCallback((mlResult) => {
+    console.log('🤖 ML Result ready:', mlResult);
+    
+    // Store in local storage for cross-tab communication
+    const resultWithTimestamp = {
+      ...mlResult,
+      timestamp: new Date().toISOString()
+    };
+    localStorage.setItem('lastMLResult', JSON.stringify(resultWithTimestamp));
+    
+    // Update state
+    setRecentMLResult(resultWithTimestamp);
+    
+    // Show notification
+    setSuccess('New ML analysis complete! Generating recommendations...');
+    
+    // Refresh recommendations after a delay
+    setTimeout(() => {
+      apiService.clearAllCache();
+      cacheManager.clear();
+      loadRecommendations();
+    }, 2000);
+  }, []);
+
+  // ============================================================================
+  // LOCALSTORAGE LISTENER FOR CROSS-TAB UPDATES
+  // ============================================================================
+
+  useEffect(() => {
+    const handleStorageChange = (event) => {
+      if (event.key === 'lastMLResult' && event.newValue) {
+        try {
+          const result = JSON.parse(event.newValue);
           if (result.timestamp && Date.now() - new Date(result.timestamp).getTime() < 300000) {
-            // Result is less than 5 minutes old
-            console.log('🕒 Fresh ML result available');
+            console.log('📦 ML result updated from another tab');
             setRecentMLResult(result);
+            setSuccess('New ML analysis detected from another tab!');
           }
         } catch (e) {
           console.error('Failed to parse localStorage ML result:', e);
         }
-      } else {
-        console.log('📦 No ML result in localStorage');
       }
     };
-    
-    checkLocalStorage();
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
-  
+
+  // ============================================================================
+  // INITIALIZE REAL-TIME SYSTEM
+  // ============================================================================
+
+  useEffect(() => {
+    if (realTimeEnabled) {
+      setupWebSocket();
+      
+      // Setup cache listener for automatic refreshes
+      const unsubscribe = cacheManager.subscribe((key, action) => {
+        if (key === 'recommendations-list' && (action === 'invalidate' || action === 'clear')) {
+          console.log('🔄 Cache invalidated, refreshing data...');
+          loadRecommendations();
+        }
+      });
+      
+      return () => {
+        if (wsRef.current) {
+          wsRef.current.close();
+        }
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+        }
+        unsubscribe();
+      };
+    }
+  }, [realTimeEnabled, setupWebSocket]);
+
+  // ============================================================================
+  // HELPER FUNCTIONS
+  // ============================================================================
+
   const extractSensorId = (sensorDataRef) => {
     if (!sensorDataRef || sensorDataRef === 'N/A') {
       return 'N/A';
@@ -164,7 +441,7 @@ function Recommendations() {
   };
 
   // ============================================================================
-  // OPTIMIZED FETCH FUNCTIONS WITH BATCHING
+  // DATA FETCHING FUNCTIONS
   // ============================================================================
 
   const fetchSensorData = useCallback((sensorDataRef, sensorConditions) => {
@@ -180,12 +457,10 @@ function Recommendations() {
     };
   }, []);
 
-  // Batch fetch all locations at once
   const fetchAllLocations = useCallback(async (locationRefs) => {
     const uniqueLocationIds = new Set();
     const locationMap = new Map();
     
-    // Extract unique location IDs
     locationRefs.forEach(ref => {
       if (!ref || ref === 'N/A') return;
       
@@ -203,7 +478,6 @@ function Recommendations() {
       }
     });
 
-    // Check cache first
     const uncachedIds = [];
     uniqueLocationIds.forEach(id => {
       const cached = cacheManager.get(`location-${id}`);
@@ -214,7 +488,6 @@ function Recommendations() {
       }
     });
 
-    // Fetch uncached locations in parallel
     if (uncachedIds.length > 0) {
       const locationPromises = uncachedIds.map(async (locationId) => {
         try {
@@ -231,6 +504,7 @@ function Recommendations() {
           cacheManager.set(`location-${locationId}`, result);
           return { id: locationId, data: result };
         } catch (error) {
+          console.warn(`Failed to fetch location ${locationId}:`, error.message);
           const fallback = {
             locationId: locationId,
             location_name: `Location ${locationId}`,
@@ -250,12 +524,10 @@ function Recommendations() {
     return locationMap;
   }, []);
 
-  // Batch fetch all seedlings at once
   const fetchAllSeedlings = useCallback(async (allSeedlingRefs) => {
     const uniqueSeedlingIds = new Set();
     const seedlingMap = new Map();
     
-    // Extract unique seedling IDs
     allSeedlingRefs.forEach(refs => {
       if (!Array.isArray(refs)) return;
       
@@ -267,7 +539,6 @@ function Recommendations() {
       });
     });
 
-    // Check cache first
     const uncachedIds = [];
     uniqueSeedlingIds.forEach(id => {
       const cached = cacheManager.get(`seedling-${id}`);
@@ -278,7 +549,6 @@ function Recommendations() {
       }
     });
 
-    // Fetch uncached seedlings in parallel
     if (uncachedIds.length > 0) {
       const seedlingPromises = uncachedIds.map(async (seedlingId) => {
         try {
@@ -301,6 +571,7 @@ function Recommendations() {
           }
           return null;
         } catch (error) {
+          console.warn(`Failed to fetch seedling ${seedlingId}:`, error.message);
           return null;
         }
       });
@@ -317,7 +588,7 @@ function Recommendations() {
   }, []);
 
   // ============================================================================
-  // FULLY OPTIMIZED LOADING FUNCTION
+  // MAIN LOAD FUNCTION
   // ============================================================================
 
   const loadRecommendations = useCallback(async () => {
@@ -330,53 +601,37 @@ function Recommendations() {
     setError(null);
     
     try {
-      // Step 1: Get recommendations (check cache first)
-      const cacheKey = 'recommendations-list';
-      const cachedRecos = cacheManager.get(cacheKey);
-      
-      let recommendationsData;
-      if (cachedRecos) {
-        recommendationsData = cachedRecos;
-      } else {
-        recommendationsData = await apiService.getRecommendations();
-        cacheManager.set(cacheKey, recommendationsData);
-      }
+      console.log('📡 Loading recommendations...');
+      const recommendationsData = await apiService.getRecommendations();
 
       if (!recommendationsData || !Array.isArray(recommendationsData)) {
+        console.log('No recommendations data received');
         setRecommendations([]);
         return;
       }
 
-      if (recommendationsData.length === 0) {
-        setRecommendations([]);
-        return;
-      }
-
-      // Filter out deleted recommendations
       const validRecommendations = recommendationsData.filter(reco => !reco.deleted);
 
       if (validRecommendations.length === 0) {
+        console.log('No valid recommendations');
         setRecommendations([]);
         return;
       }
 
-      // Step 2: Collect all unique location and seedling references
+      console.log(`Processing ${validRecommendations.length} recommendations`);
+
       const locationRefs = validRecommendations.map(reco => reco.locationRef);
       const allSeedlingRefs = validRecommendations.map(reco => reco.seedlingOptions || []);
 
-      // Step 3: Batch fetch all locations and seedlings in parallel
       const [locationMap, seedlingMap] = await Promise.all([
         fetchAllLocations(locationRefs),
         fetchAllSeedlings(allSeedlingRefs)
       ]);
 
-      // Step 4: Process all recommendations (now all data is available)
       const processedRecommendations = validRecommendations.map(reco => {
         try {
-          // Get sensor data (no API call needed)
           const sensorData = fetchSensorData(reco.sensorDataRef, reco.sensorConditions);
           
-          // Get location data from map
           const locationParts = (reco.locationRef || '').split('/').filter(Boolean);
           let locationId = locationParts.length >= 2 ? locationParts[1] : (locationParts.length === 1 ? locationParts[0] : 'unknown');
           const locationData = locationMap.get(locationId) || {
@@ -386,7 +641,6 @@ function Recommendations() {
             location_longitude: 'N/A'
           };
           
-          // Get seedlings from map
           let seedlings = [];
           if (Array.isArray(reco.seedlingOptions) && reco.seedlingOptions.length > 0) {
             seedlings = reco.seedlingOptions
@@ -397,7 +651,6 @@ function Recommendations() {
               .filter(Boolean);
           }
 
-          // Process confidence score
           let confidenceScore;
           if (typeof reco.reco_confidenceScore === 'string') {
             confidenceScore = parseFloat(reco.reco_confidenceScore);
@@ -413,7 +666,6 @@ function Recommendations() {
 
           const status = generateStatus(confidenceScore);
 
-          // Process date
           let generatedDate;
           try {
             if (reco.reco_generatedAt) {
@@ -427,9 +679,13 @@ function Recommendations() {
             generatedDate = new Date().toISOString();
           }
 
+          // Check if this is a new recommendation
+          const recoId = reco.id || reco.reco_id;
+          const isNew = newRecommendationsRef.current.has(recoId);
+          
           return {
-            id: reco.id || reco.reco_id,
-            reco_id: reco.id || reco.reco_id,
+            id: recoId,
+            reco_id: recoId,
             sensorDataRef: reco.sensorDataRef || 'N/A',
             locationRef: reco.locationRef || 'N/A',
             sensorData: sensorData,
@@ -441,7 +697,9 @@ function Recommendations() {
             seedlingCount: seedlings.length,
             deleted: false,
             season: reco.season || 'unknown',
-            sensorConditions: reco.sensorConditions || {}
+            sensorConditions: reco.sensorConditions || {},
+            isNew: isNew,
+            updatedAt: new Date().toISOString()
           };
         } catch (recoError) {
           console.error('Error processing recommendation:', recoError);
@@ -450,6 +708,18 @@ function Recommendations() {
       }).filter(reco => reco !== null);
 
       setRecommendations(processedRecommendations);
+      
+      // Update stats
+      const newStats = {
+        total: processedRecommendations.length,
+        approved: processedRecommendations.filter(r => r.status === 'Approved').length,
+        pending: processedRecommendations.filter(r => r.status === 'Pending').length,
+        new: processedRecommendations.filter(r => r.isNew).length
+      };
+      setStats(newStats);
+      
+      setLastUpdate(new Date());
+      console.log(`✅ Loaded ${processedRecommendations.length} recommendations`);
       
     } catch (error) {
       console.error('Error loading recommendations:', error);
@@ -462,8 +732,45 @@ function Recommendations() {
   }, [fetchSensorData, fetchAllLocations, fetchAllSeedlings]);
 
   // ============================================================================
-  // OTHER HANDLERS (UNCHANGED)
+  // POLLING FALLBACK
   // ============================================================================
+
+  useEffect(() => {
+    loadRecommendations();
+
+    // Polling fallback for when WebSocket is not available
+    const pollInterval = setInterval(() => {
+      if (!isLoadingRef.current && document.visibilityState === 'visible') {
+        // Poll only if WebSocket is not connected or real-time is disabled
+        if (!realTimeEnabled || !wsConnected || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+          console.log('🔄 Polling for updates...');
+          loadRecommendations();
+        }
+      }
+    }, 60000); // 1 minute
+
+    return () => {
+      clearInterval(pollInterval);
+      isLoadingRef.current = false;
+    };
+  }, [loadRecommendations, realTimeEnabled, wsConnected]);
+
+  // ============================================================================
+  // ACTION HANDLERS
+  // ============================================================================
+
+  const handleManualRefresh = useCallback(() => {
+    console.log('🔄 Manual refresh triggered');
+    lastPollRef.current = Date.now();
+    apiService.clearAllCache();
+    cacheManager.clear();
+    setLastUpdate(new Date());
+    loadRecommendations();
+  }, [loadRecommendations]);
+
+  const handleToggleRealTime = (event) => {
+    setRealTimeEnabled(event.target.checked);
+  };
 
   const handleImplementRecommendation = async (reco) => {
     try {
@@ -471,11 +778,11 @@ function Recommendations() {
       setError(null);
       
       if (!reco.locationData) {
-        throw new Error('Location data is missing. The recommendation may be corrupted.');
+        throw new Error('Location data is missing.');
       }
       
       if (!reco.locationData.locationId || reco.locationData.locationId === 'unknown') {
-        throw new Error('Location ID is missing or invalid. Cannot create planting task.');
+        throw new Error('Location ID is missing or invalid.');
       }
       
       const taskData = {
@@ -500,6 +807,9 @@ function Recommendations() {
 
       setSuccess("Recommendation implemented successfully!");
       
+      // Clear cache for planting tasks
+      apiService.invalidateCache('/api/plantingtasks');
+      
       setTimeout(() => {
         navigate(`/tasks/${reco.reco_id}`);
       }, 1500);
@@ -507,11 +817,9 @@ function Recommendations() {
     } catch (error) {
       let errorMessage = 'Failed to create planting task. ';
       if (error.message.includes('Network Error')) {
-        errorMessage += 'Please check your internet connection and try again.';
+        errorMessage += 'Please check your internet connection.';
       } else if (error.message.includes('Location')) {
         errorMessage += error.message;
-      } else if (error.message.includes('corrupted')) {
-        errorMessage += 'The recommendation data is incomplete. Please try generating a new recommendation.';
       } else {
         errorMessage += error.message || 'Please try again.';
       }
@@ -525,6 +833,15 @@ function Recommendations() {
   const handleRowClick = (reco) => {
     setSelectedReco(reco);
     setOpenDialog(true);
+    
+    // Mark as read if it's new
+    if (reco.isNew) {
+      newRecommendationsRef.current.delete(reco.id);
+      setUnreadCount(prev => Math.max(0, prev - 1));
+      setRecommendations(prev => prev.map(r => 
+        r.id === reco.id ? { ...r, isNew: false } : r
+      ));
+    }
   };
 
   const handleDeleteClick = (reco, event) => {
@@ -544,6 +861,8 @@ function Recommendations() {
       setDeleteDialogOpen(false);
       setRecoToDelete(null);
       
+      // Clear caches
+      apiService.clearAllCache();
       cacheManager.clear();
       loadRecommendations();
     } catch (error) {
@@ -557,26 +876,13 @@ function Recommendations() {
     setDeleteDialogOpen(false);
     setRecoToDelete(null);
   };
-  
-  // ============================================================================
-  // USE EFFECTS
-  // ============================================================================
 
-  useEffect(() => {
-    loadRecommendations();
-
-    // Optimized polling - only when tab is visible, longer interval
-    const pollInterval = setInterval(() => {
-      if (!isLoadingRef.current && document.visibilityState === 'visible') {
-        loadRecommendations();
-      }
-    }, 120000); // 2 minutes instead of 1 minute
-
-    return () => {
-      clearInterval(pollInterval);
-      isLoadingRef.current = false;
-    };
-  }, [loadRecommendations]);
+  const markAllAsRead = () => {
+    newRecommendationsRef.current.clear();
+    setUnreadCount(0);
+    setRecommendations(prev => prev.map(reco => ({ ...reco, isNew: false })));
+    setSuccess('All recommendations marked as read');
+  };
 
   // ============================================================================
   // UI HELPERS
@@ -642,53 +948,62 @@ function Recommendations() {
             </Alert>
           )}
 
-          {/* ADD THIS SECTION TO SHOW RECENT ML RESULT */}
+          {/* Recent ML Result Banner */}
           {recentMLResult && (
             <Alert 
-              severity={recentMLResult.hasError ? "error" : recentMLResult.hasManualReview ? "warning" : "success"}
+              severity="info" 
               sx={{ mb: 3, borderRadius: 2 }}
-              onClose={() => {
-                setRecentMLResult(null);
-                localStorage.removeItem('lastMLResult');
-              }}
+              icon={<NewReleasesIcon />}
+              onClose={() => setRecentMLResult(null)}
             >
-              <Typography variant="subtitle2" fontWeight="bold">
-                Recent ML Result - Sensor {recentMLResult.sensorId}
+              <Typography variant="body1" fontWeight="medium">
+                New ML Analysis Complete!
               </Typography>
               <Typography variant="body2">
-                {recentMLResult.hasError ? `Error: ${recentMLResult.errorMessage}` : 
-                 recentMLResult.hasManualReview ? `Review Needed: ${recentMLResult.recommendations[0]?.reason}` : 
-                 `Generated ${recentMLResult.recommendations?.length || 0} recommendation(s)`}
+                Generated {recentMLResult.recommendationCount || 1} new recommendation(s) based on latest sensor data.
               </Typography>
-              {recentMLResult.recommendations?.length > 0 && (
-                <Box sx={{ mt: 1 }}>
-                  <Typography variant="caption" fontWeight="bold">Top Recommendation:</Typography>
-                  <Typography variant="caption" display="block">
-                    {recentMLResult.recommendations[0]?.commonName || 'Unknown'} - 
-                    {((recentMLResult.recommendations[0]?.confidenceScore || 0) * 100).toFixed(1)}% confidence
-                  </Typography>
-                </Box>
-              )}
             </Alert>
           )}
 
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+          {/* Connection Status */}
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 2 }}>
             <Box>
               <Typography variant="h4" sx={{ color: '#2e7d32', fontWeight: 600 }}>
                 Planting Recommendations
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                {recommendations.length} recommendation{recommendations.length !== 1 ? 's' : ''} generated by ML algorithm
+                {lastUpdate && ` Updated: ${lastUpdate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`}
               </Typography>
             </Box>
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              sx={{ backgroundColor: '#2e7d32' }}
-              onClick={() => navigate('/sensor')}
-            >
-              Generate New
-            </Button>
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+              
+              {unreadCount > 0 && (
+                <Button
+                  variant="outlined"
+                  startIcon={<CheckCircleIcon />}
+                  onClick={markAllAsRead}
+                  sx={{ borderColor: '#2e7d32', color: '#2e7d32' }}
+                >
+                  Mark All Read
+                </Button>
+              )}
+              <Button
+                variant="outlined"
+                startIcon={<RefreshIcon />}
+                onClick={handleManualRefresh}
+                disabled={loading}
+              >
+                Refresh
+              </Button>
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                sx={{ backgroundColor: '#2e7d32' }}
+                onClick={() => navigate('/sensor')}
+              >
+                Generate New
+              </Button>
+            </Box>
           </Box>
 
           {loading && <LinearProgress sx={{ mb: 2 }} />}
@@ -727,10 +1042,10 @@ function Recommendations() {
                 Loading recommendations...
               </Typography>
             </Box>
-          ) : recommendations.length === 0 ? (
+          ) : filteredRecommendations.length === 0 ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 200 }}>
               <Typography variant="body1" color="textSecondary">
-                No recommendations found in the database.
+                No recommendations found.
               </Typography>
             </Box>
           ) : (
@@ -740,14 +1055,15 @@ function Recommendations() {
                   <Table>
                     <TableHead>
                       <TableRow sx={{ bgcolor: theme.palette.grey[50] }}>
-                        <TableCell><Typography variant="subtitle2" fontWeight="bold">Recommendation ID</Typography></TableCell>
-                        <TableCell><Typography variant="subtitle2" fontWeight="bold">Location</Typography></TableCell>
-                        <TableCell><Typography variant="subtitle2" fontWeight="bold">Sensor Data</Typography></TableCell>
-                        <TableCell><Typography variant="subtitle2" fontWeight="bold">Seedlings Count</Typography></TableCell>
-                        <TableCell><Typography variant="subtitle2" fontWeight="bold">Confidence</Typography></TableCell>
-                        <TableCell><Typography variant="subtitle2" fontWeight="bold">Generated</Typography></TableCell>
-                        <TableCell><Typography variant="subtitle2" fontWeight="bold">Status</Typography></TableCell>
-                        <TableCell align="center"><Typography variant="subtitle2" fontWeight="bold">Actions</Typography></TableCell>
+                        <TableCell width="5%"><Typography variant="subtitle2" fontWeight="bold"></Typography></TableCell>
+                        <TableCell width="15%"><Typography variant="subtitle2" fontWeight="bold">Recommendation ID</Typography></TableCell>
+                        <TableCell width="20%"><Typography variant="subtitle2" fontWeight="bold">Location</Typography></TableCell>
+                        <TableCell width="15%"><Typography variant="subtitle2" fontWeight="bold">Sensor Data</Typography></TableCell>
+                        <TableCell width="10%"><Typography variant="subtitle2" fontWeight="bold">Seedlings</Typography></TableCell>
+                        <TableCell width="15%"><Typography variant="subtitle2" fontWeight="bold">Confidence</Typography></TableCell>
+                        <TableCell width="10%"><Typography variant="subtitle2" fontWeight="bold">Generated</Typography></TableCell>
+                        <TableCell width="10%"><Typography variant="subtitle2" fontWeight="bold">Status</Typography></TableCell>
+                        <TableCell align="center" width="10%"><Typography variant="subtitle2" fontWeight="bold">Actions</Typography></TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -757,10 +1073,18 @@ function Recommendations() {
                           hover 
                           sx={{ 
                             '&:hover': { bgcolor: 'rgba(46, 125, 50, 0.04)', cursor: 'pointer' },
-                            transition: 'background-color 0.2s'
+                            transition: 'background-color 0.2s',
+                            borderLeft: reco.isNew ? `4px solid ${theme.palette.warning.main}` : 'none'
                           }}
                           onClick={() => handleRowClick(reco)}
                         >
+                          <TableCell>
+                            {reco.isNew && (
+                              <Tooltip title="New recommendation">
+                                <UnreadIcon sx={{ fontSize: 12, color: 'warning.main' }} />
+                              </Tooltip>
+                            )}
+                          </TableCell>
                           <TableCell>
                             <Typography variant="body2" fontWeight="medium">{reco.reco_id}</Typography>
                           </TableCell>
@@ -789,9 +1113,6 @@ function Recommendations() {
                                   <Typography variant="caption" color="text.secondary" display="block">
                                     Temp: {reco.sensorData.temperature}°C
                                   </Typography>
-                                  <Typography variant="caption" color="text.secondary" display="block">
-                                    pH: {reco.sensorData.pH}
-                                  </Typography>
                                 </>
                               ) : (
                                 <Typography variant="body2" color="text.secondary">No data</Typography>
@@ -803,6 +1124,7 @@ function Recommendations() {
                               label={`${reco.seedlingCount} seedlings`} 
                               color="primary" 
                               variant="outlined"
+                              size="small"
                             />
                           </TableCell>
                           <TableCell>
@@ -880,7 +1202,7 @@ function Recommendations() {
             </>
           )}
 
-          {/* Detail Dialog */}
+          {/* Detail Dialog - Same as before */}
           <Dialog
             open={openDialog}
             onClose={handleCloseDialog}
@@ -903,7 +1225,7 @@ function Recommendations() {
               {selectedReco && (
                 <Box sx={{ width: '100%', maxWidth: 600, mx: 'auto' }}>
                   <Grid container spacing={3}>
-                    {/* CARD 1: Summary */}
+                    {/* Details content - same as before */}
                     <Grid item xs={12}>
                       <Card variant="outlined">
                         <CardContent>
@@ -1003,7 +1325,7 @@ function Recommendations() {
                       </Card>
                     </Grid>
 
-                    {/* CARD 2: Recommended Seedlings */}
+                    {/* Recommended Seedlings */}
                     <Grid item xs={12}>
                       <Card variant="outlined">
                         <CardContent>
